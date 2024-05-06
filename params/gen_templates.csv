@@ -1,0 +1,10 @@
+Ttot,1.,4.,25.,240.,420.
+fe,2048,1024,512,256,128
+kindPSD,analytic,
+mint,1.,285.5
+tcint,0.998,0.999
+NbB,1,
+kindTemplate,EOB,
+kindBank,VT_bank_2bands.txt,
+step,1.,
+whitening,0,
