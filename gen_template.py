@@ -8,6 +8,7 @@ import math
 import time
 from pycbc.waveform import get_td_waveform
 from pycbc.waveform import utils
+from pycbc.pnutils import f_FRD
 from scipy.stats import norm
 from scipy import signal
 from scipy.interpolate import interp1d
@@ -48,7 +49,7 @@ Option:
 
 class GenTemplate:
 
-    def __init__(self,Tsample=1,fe=2048,fDmin=15,fDmax=1000,kindTemplate='EM',whitening=1,verbose=False,customPSD=None):
+    def __init__(self,Tsample=1,fe=2048,fDmin=15,fDmax=1000,kindTemplate='EM',whitening=1,verbose=False,customPSD=None,PSD='flat'):
 
         if not (isinstance(fe,int) or isinstance(fe,float) or isinstance(fe,list)) and not (isinstance(fDmin,int) or isinstance(fDmin,float)):
             raise TypeError("fe et fDmin doivent être des ints ou des floats (fe peut aussi être une list)")
@@ -112,6 +113,8 @@ class GenTemplate:
         self._evolSnr = []
         self._evolSnrFreq = []
         self.__verb=verbose
+        self.__Ttot=self.__Tsample
+        self.__Noise=gn.GenNoise(Ttot=self.__Ttot,fe=self.__fe, kindPSD=PSD,fmin=self.__fDmin,fmax=self.__fDmaxd,whitening=self.__whiten,customPSD=self.__custPSD)
         
  
     '''
@@ -160,11 +163,15 @@ class GenTemplate:
     EM is a simple EM equivalent model
     '''
     
-    def majParams(self,m1,m2,s1=0,s2=0,D=None,Phic=None):
+    def majParams(self,m1,m2,s1x=0,s2x=0,s1y=0,s2y=0,s1z=0,s2z=0,D=None,Phic=None):
     
         # Start by updating the main params
-        self.__s1z=s1 
-        self.__s2z=s2 
+        self.__s1x=s1x 
+        self.__s2x=s2x
+        self.__s1y=s1y 
+        self.__s2y=s2y 
+        self.__s1z=s1z 
+        self.__s2z=s2z 
         self.__m1=self.__m1 if m1 is None else m1*Msol
         self.__m2=self.__m2 if m2 is None else m2*Msol
         self.__D=self.__D if D is None else D*MPC
@@ -200,38 +207,18 @@ class GenTemplate:
         
         if self.__type==0:
             
-            # The signal starting at frequency fDmin (~Tchirp)
-            #hp,hq = get_td_waveform(approximant='SEOBNRv4_opt', mass1=self.__m1/Msol,mass2=self.__m2/Msol,delta_t=self.__delta_t,f_lower=self.__fDmind)
-
-            # The signal starting at frequency fDmind (~Tchirpd)
-            #hpd,hqd = get_td_waveform(approximant='SEOBNRv4_opt', mass1=self.__m1/Msol,mass2=self.__m2/Msol,delta_t=self.__delta_t,f_lower=self.__fDmind)
-
-            # Remove 0's at the end
-            '''
-            c1=0
-            for c1 in range(len(hp)-1,-1,-1): # Don't consider 0 at the end
-                if abs(hp.numpy()[c1])>1e-35:
-                    break
-            hp_tab=hp.numpy()[:c1]
-            '''
-            '''
-            c1=0
-            for c1 in range(len(hpd)-1,-1,-1): # Don't consider 0 at the end
-                if abs(hpd.numpy()[c1])>1e-35:
-                    break
-            hp_tabd=hpd.numpy()[:c1]
-            '''
             # Here we have the correct values
             self.__Tchirp=self.__Tsample
             
-            self.__Tchirpd=self.__Tchirp-0.01
+            self.__Tchirpd=self.__Tchirp-0.05 # Apply blackman window to the last 50ms of the frame
     
             # Blackman window is defined differently here
             # Because there is some signal after the merger for those templates
             
-            self.__Tblack=self.__Tchirp-self.__Tchirpd
-            #self.__Tblack_start=self.__Tchirp-len(hp_tab)*self.__delta_t
-            
+            self.__Tblack=1. # First second by default
+            self.__Tblack_start=0. # Will be update on demand
+
+
         # The total length of signal to produce (and total num of samples)
         self.__Ttot=self.__Tchirp
         N=int(self.__Ttot*self.__fe)
@@ -289,12 +276,44 @@ class GenTemplate:
             self.__Stinit[:]= npy.concatenate((self.h(self.__T[itmin:itmax]),npy.zeros(self.__N-itmax)))
             
         elif self.__kindTemplate=='EOB':
-                
-            # The signal starting at frequency fDmin
-            if (self.__m1/Msol+self.__m2/Msol>=4.):
-                hp,hq = get_td_waveform(approximant='SEOBNRv4_opt', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,delta_t=self.__delta_t,f_lower=self.__fDmin)
+
+            m1=self.__m1/Msol 
+            m2=self.__m2/Msol
+
+            # Trick to avoid template gen issue with SEOBNR
+            # One need to compute the ringdown frequency first
+
+            frd=2.*f_FRD(m1,m2)
+            d=5
+            while 2**d<frd:
+                d+=1
+
+            #print(m1,m2,frd)
+            fs_tmp=2**d
+            if fs_tmp/frd<1.5:
+                fs_tmp=2**(d+1)
+            nyq=self.__fe/2
+            fetmp=self.__fe
+            ratio=1.
+            if fs_tmp>nyq/2:
+                #print("Need to upsample because of ringdown freq")
+                fetmp=2*fs_tmp
+                ratio=fetmp/self.__fe
+
+            #print(m1,m2,mchirp,mratio)
+            if self.__m1/Msol+self.__m2/Msol>=4.:
+                hp,hq = get_td_waveform(coa_phase=self.__Phic,approximant='SEOBNRv4_opt', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,delta_t=1./fetmp,f_lower=self.__fDmin)
+
+                # Resample on the fly
+                if (ratio>1):
+                    #print(f"Resample the signal by {ratio}")
+                    hp=hp[::int(ratio)]
+                    hq=hq[::int(ratio)]
             else:
-                hp,hq = get_td_waveform(approximant='SpinTaylorT4', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,delta_t=self.__delta_t,f_lower=self.__fDmin)
+                hp,hq = get_td_waveform(coa_phase=self.__Phic,approximant='SpinTaylorT4', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,delta_t=self.__delta_t,f_lower=self.__fDmin)
+            
+            
+            
             f = utils.frequency_from_polarizations(hp, hq)
 
             limit=0.01*npy.max(npy.abs(npy.asarray(hp))) # Look for 99% amplitude drop after coalescence
@@ -305,38 +324,44 @@ class GenTemplate:
             hp_tab=hp.numpy()[:c1]
             freqs=f.numpy()[:c1]
            
-            
+            #print(time.time()-start_time)
+            #print('Frame lengths',len(self.__St),len(hp_tab))
             itmin=max(0,len(self.__St)-len(hp_tab))
-            if itmin==0:
+            if itmin==0: # Template is not fully contained, truncate it
                 self.__St[:]= hp_tab[len(hp_tab)-len(self.__St):]
                 self.__Stfreqs[:]= freqs[len(hp_tab)-len(self.__St):]
-            else:
+            else:        # Template is fully contained, pad St
                 self.__St[:]= npy.concatenate((npy.zeros(itmin),hp_tab))
                 self.__Stfreqs[:]= npy.concatenate((npy.zeros(itmin),freqs))
-
+                self.__Tblack_start=itmin*self.__delta_t
+                self.__Tblack=(itmin+100)*self.__delta_t
+            del hp,hq,hp_tab
         elif self.__kindTemplate=='IMRPhenomTPHM':
                 
             # The signal starting at frequency fDmin
-            hp,hq = get_td_waveform(approximant='IMRPhenomTPHM', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,spin2x=-0.2,spin2y=0.,spin1x=0.5,spin1y=-0.4,delta_t=self.__delta_t,f_lower=self.__fDmin)
+            hp,hq = get_td_waveform(coa_phase=self.__Phic,approximant='IMRPhenomTPHM', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,spin2x=self.__s2x,spin2y=self.__s2y,spin1x=self.__s1x,spin1y=self.__s1y,delta_t=self.__delta_t,f_lower=self.__fDmin)
             f = utils.frequency_from_polarizations(hp, hq)
 
             limit=0.01*npy.max(npy.abs(npy.asarray(hp))) # Look for 99% amplitude drop after coalescence
 
             for c1 in range(len(hp)-1,-1,-1): # Don't consider info after coalescence
                 if abs(hp.numpy()[c1])>limit:
-                    print(c1,len(hp))
+                    #print(c1,len(hp))
                     break
             hp_tab=hp.numpy()[:c1]
             freqs=f.numpy()[:c1]
            
             
             itmin=max(0,len(self.__St)-len(hp_tab))
-            if itmin==0:
+            if itmin==0: # Template is not fully contained, truncate it
                 self.__St[:]= hp_tab[len(hp_tab)-len(self.__St):]
                 self.__Stfreqs[:]= freqs[len(hp_tab)-len(self.__St):]
-            else:
+            else:        # Template is fully contained, pad St
                 self.__St[:]= npy.concatenate((npy.zeros(itmin),hp_tab))
                 self.__Stfreqs[:]= npy.concatenate((npy.zeros(itmin),freqs))
+                self.__Tblack_start=itmin*self.__delta_t
+                self.__Tblack=(itmin+100)*self.__delta_t
+            del hp,hq,hp_tab
         else:
             raise ValueError("Valeur pour kindTemplate non prise en charge")
 
@@ -405,7 +430,8 @@ class GenTemplate:
     
     '''
       
-    def rhoOpt(self,Noise):     
+    def rhoOpt(self,Noise):  
+        #print("A")   
         ifmax=int(min(self.__fDmaxd,self.__fe/2)/self.__delta_f)
         ifmin=int(self.__fDmind/self.__delta_f)
         
@@ -418,39 +444,13 @@ class GenTemplate:
         # if Ttot is lower than time in the detector acceptance
             
         freqs=npy.arange(len(self.__Sf))*self.__delta_f
-        self._evolSnrTime=self.get_t(freqs[ifmin:ifmax]/2)
-        self._evolSnrFreq=freqs[ifmin:ifmax]
 
-        ifmaxe=-1
-        ifmine=10000
-            
-        if self.__kindTemplate=='EOB': # Special EOB case treatment
-            freqsEOB=self.__Stfreqs
-            times=self.__T
-            tmptimes=[]
-            fmax=-1
-            fmin=10000
-            idx=0
-            for f in freqsEOB:
-                if f>fmax:
-                    fmax=f
-                    ifmaxe=idx
-                if f<fmin:
-                    fmin=f
-                    ifmine=idx
-                idx+=1
-
-            self._evolSnrTime=self.__T[ifmine:ifmaxe]
-            self._evolSnrFreq=freqsEOB[ifmine:ifmaxe]
-                
-        
         # <x**2(t)> calculation
         # Sfn and PSD have the same normalisation
         #
         # !!! PSD=Sn/2 !!!
         
         ropt=npy.sqrt(2*npy.trapz(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax]),freqs[ifmin:ifmax]).real)
-        
         #
         # Definition of the SNRmax used here is available in Eqn 26 of the foll. paper:
         #
@@ -462,124 +462,7 @@ class GenTemplate:
         if self.__verb:
             print(f'MF output value when template is filtered by noise (No angular or antenna effects, D=1Mpc) over the total period is equal to {ropt:.2f}',self.__delta_f)
         self.__norm=ropt
-        
-
-        # Here we compute the rhoOpt share per frequency bin (put the right norm for PSD here)
-        self._evolSnr_f = (2/self.__norm*self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax]/self.__delta_f)).real
-        
-        
-        # Get the maximum reachable SNR
-        self._evolSnr=npy.cumsum(self._evolSnr_f)  # SNR evolution vs time/freq
-        snrMaxTest=self._evolSnr[len(self._evolSnr)-1]
-
-        if self.__verb:
-            print(f'Max SNR which can be collected= {snrMaxTest:.2f}')
-            print('')
-            print('Now compute the SNR repartition among chunks of data')
-
-        self._evolSnr = self._evolSnr/snrMaxTest   # SNR evolution normalized
-        
-        # Compute the SNR sharing along time for the sample produced
-
-        idx_samp=[]
-        # tstart is the time when our sample starts in the template produced
-        tstart=self.__Ttot-self.__Tsample
-        
-        # When do we enter into the different data chunk ?
-        for j in range(self.__nTsample-1,-1,-1):
-            tend=tstart+self.__listTsample[j]
-            k=0
-            found=False
-            if (self._evolSnrTime[0]>tend):
-                idx_samp.append(-1)
-                tstart=tend
-            else:
-                for i in self._evolSnrTime:
-                    if i>=tstart and found==False:
-                        idx_samp.append(k)
-                        found=True
-                    if i>=tend:
-                        tstart=tend
-                        break
-                    k+=1
-        idx_samp.reverse()
-
-        
-        # Ok now we have everything in hand to compute the times
-        # So for n bands each portion will contain 100/n% of rhoOpt
-        # tint will contain the time of each section, going back from Tc=0
-        # so the range [Tc-tint[n-1],Tc] will contain 100/n % of rhoopt, and so on
-            
-                
-        ifint=ifmin+1
-        rint=1./self.__nTsample
-                
-        vals=npy.arange(self.__nTsample+1)*rint
-        self._Snr_vs_freq=self._evolSnr
-        self._Snr_vs_freq_base=self._Snr_vs_freq
-        theSum=0.
-        
-        if self.__kindTemplate=='EOB':
-            Snr_EOB=[]
-            for j in range(len(self._evolSnrTime)):
-            
-                if self._evolSnrFreq[j]<self.__fDmind:
-                    Snr_EOB.append(0)
-                    continue
-                idxfreq=int((self._evolSnrFreq[j]-self.__fDmind)/self.__delta_f)
-                if idxfreq!=0:
-                    Snr_EOB.append(self._Snr_vs_freq[idxfreq])
-                else:
-                    Snr_EOB.append(0)
-            self._Snr_vs_freq=npy.asarray(Snr_EOB)
-
-        for j in range(self.__nTsample):
-        
-            if idx_samp[j]==-1:
-                if self.__verb:
-                    print("We collect no SNR in chunk",j,f"({self.__listfe[j]}Hz)")
-            else:
-                if (j==0):
-                    self._rawSnr[j]=100*(1-self._Snr_vs_freq[idx_samp[j]])
-                else:
-                    self._rawSnr[j]=100*(self._Snr_vs_freq[idx_samp[j-1]]-self._Snr_vs_freq[idx_samp[j]])
-        
-                if self.__verb:
-                    if (j==0):
-                        print("We collect",100*(1-self._Snr_vs_freq[idx_samp[j]]),"% of SNR in chunk",j,f"({self.__listfe[j]}Hz)")
-                    else:
-                        print("We collect",100*(self._Snr_vs_freq[idx_samp[j-1]]-self._Snr_vs_freq[idx_samp[j]]),"% of SNR in chunk",j,f"({self.__listfe[j]}Hz)")
-                        
-        
-        for j in range(self.__nTsample):
-            idx=0
-                        
-            for k in self._evolSnrFreq:
-                idxfreq=int((k-self.__fDmind)/self.__delta_f)
-                snrprop=1.1
-                if (idxfreq>=0):
-                    snrprop=self._Snr_vs_freq_base[idxfreq]
-            
-                if snrprop<=vals[j]:
-                    self._tint[j]=self._evolSnrTime[idx]
-                    self._fint[j]=k
-                idx+=1
-            
-        
-        totalSnr = npy.sum(self._rawSnr)
-        if self.__verb:
-            print(f"With the current samples one collected  : {totalSnr}% of the possible SNR")
-            print("")
-            print(f"Optimal sharing (tstart/fstart of the chunk) with this number of bands would be the following for this template: \n--> Timings : {self._tint}, \n--> Frequencies : {self._fint}")
-
-            
-        # Renormalize to 100% (SV: not sure this is really necessary, or as a cross check afterwards)
-        
-        if totalSnr>0:
-            self._currentSnr = self._rawSnr/totalSnr
-        if self.__verb:
-            print(f"Voici les pourcentages renormalisés en SNR des chunks choisis : {self._currentSnr}")
-        
+ 
         return self.__norm
 
     '''
@@ -597,70 +480,24 @@ class GenTemplate:
             print('No PSD given, one cannot normalize!!!')
             self.__St[:]=npy.fft.ifft(self.__Sf,norm='ortho').real
             return self.__St
-        
-        # We create a noise instance to perform the whitening
-        
-        Noise=gn.GenNoise(Ttot=self.__Ttot,fe=self.__fe, kindPSD=kindPSD,fmin=self.__fDmin,fmax=self.__fDmaxd,whitening=self.__whiten,customPSD=self.__custPSD)
-        Noise.getNewSample()
-        self.Noise=Noise
-
 
         # Important point, noise and signal are produced over the same length, it prevent binning pbs
         # We just produce the PSD here, to do the weighting
-        rho=self.rhoOpt(Noise=Noise)         # Get SNRopt
+        rho=1.
+        if norm:
+            rho=self.rhoOpt(Noise=self.__Noise)         # Get SNRopt
+        
         Sf=npy.zeros(self.__N,dtype=complex)
-        Sf=self.__Sf/npy.sqrt(Noise.PSD*self.__N*self.__delta_f)     # FD Whitening of the signal
+        Sf=self.__Sf/npy.sqrt(self.__Noise.PSD*self.__N*self.__delta_f)     # FD Whitening of the signal
         # Need to take care of the fact that PSD has not the normalization of Sf.
-    
-        self.__Sfn=Sf                        # Signal whitened
+        #self.__Sfn=Sf                        # Signal whitened
       
         # The withened and normalized signal in time domain
         #
         
-        self.__St[:]=npy.fft.ifft(Sf,norm='ortho').real/(rho if norm else 1)
-            
-            
-        #delay=(0.5*(len(Noise.whitener)-1))
-        
-        #tmp = npy.zeros(len(self.__Stblack)+int(delay))
-        #tmp[:len(self.__Stblack)]=self.__Stblack
-        
-        
-        #Run the FIR filter
-        #self.__St_filt_ZL = (signal.filtfilt(Noise.whitener_MP,1,self.__Stblack))*Noise.nf*npy.sqrt(self.__delta_t)/rho
-        self.__St_filt_ZL = (signal.lfilter(Noise.whitener_MP,1,self.__Stblack))*Noise.nf*npy.sqrt(self.__delta_t)/rho
-        #self.__St_filt = (signal.lfilter(Noise.whitener,1,tmp))*Noise.nf*npy.sqrt(self.__delta_t)/rho
-        #self.__St_filt = (signal.lfilter(Noise.whitener,1,tmp))*Noise.nf/(rho*npy.sqrt(self.__N))
-        #self.__St_filt = (signal.lfilter(Noise.whitener_MP*Noise.nf,1,self.__Stblack))
-        #self.__St_filt = (signal.lfilter(Noise.whitener_MP,1,npy.fft.ifft(self.__Sf,norm='ortho').real))
-        
-        if self.__whiten==2:
-            self.__St=self.__St_filt_ZL
-        
-        '''
-        w = npy.arange(len(self.__St))
-        w2 = npy.arange(len(tmp))
+        iwmax=int(self.__Tblack/self.__delta_t)
 
-        plt.plot(w, self.__St)
-        plt.plot(w, self.__St_filt_ZL)
-        #plt.plot(w2-delay, self.__St_filt,'--')
-        plt.grid()
-        plt.show()
-        '''
-        # We also add to the template object the corresponding matched filter
-        # The filter is defined only on a limited frequency range (the detector one)
-        # Whatever range you choose you should pick the same than for rhoOpt here
-        
-        # Otherwise it's 0 (band-pass filter)
-        
-        ifmax=int(min(self.__fDmaxd,self.__fe/2)/self.__delta_f)
-        ifmin=int(self.__fDmin/self.__delta_f)
-                
-        self.__Filtf=npy.conjugate(Sf) # The filter function is whitened
-        self.__Filtf[:ifmin]=0
-        self.__Filtf[ifmax:]=0
-        self.__Filtf[-1:-self.__N//2:-1]=npy.conjugate(self.__Filtf[1:self.__N//2])
-        
+        self.__St[iwmax:]=npy.fft.ifft(Sf,norm='ortho').real[iwmax:]/rho
         
     '''
     TEMPLATE 7/10
@@ -688,9 +525,22 @@ class GenTemplate:
                 S.append(0)
             else:
                 skimmedchunk=chunk[::int(decimate)]
-                if j>0: # Don't do that for the last chunk
-                    skimmedchunk=npy.trim_zeros(skimmedchunk, 'f')
+                
+                skimmedchunk=npy.trim_zeros(skimmedchunk, 'f')
+                
+                if (not skimmedchunk.any()): # Rare but could happen
+                    #print("Empty chunk after resample")
+                    S.append(0)
+                    continue
+                #'''
+                if (skimmedchunk[0]<1e-10):
+                    for c1 in range(len(skimmedchunk)):
+                        if skimmedchunk[c1]>1e-10:
+                            break
+                    skimmedchunk=skimmedchunk[c1:]
+                #'''
                 S.append(skimmedchunk)
+                
             vmax=cutlimit[j]
         return S
     
@@ -721,9 +571,8 @@ class GenTemplate:
         # Whiten the signal and normalize it to SNR=1
         if self.__whiten!=0:
             self._whitening(kindPSD,Tsample,norm)
-
+        
         # Resample it if needed
-        #tc= self.__Ttot-self.__Tdepass if tc==None else min(tc,self.__Tchirp)
         tc= self.__Tchirp if tc==None else min(tc,self.__Tchirp)
 
         # Here is the number of points of the required frame
@@ -731,7 +580,8 @@ class GenTemplate:
         #N=N+N%2
         S=npy.zeros(N)
         F=npy.zeros(N)
-    
+
+
         itc=int(tc/self.__delta_t)
         #print(itc,len(S),len(self.__St),Tsample,tc,self.__Ttot)
         if tc<=self.__Ttot:

@@ -9,6 +9,8 @@ import time
 import matplotlib.cm as cm
 import gen_noise as gn
 import gen_template as gt
+from numcompress import compress, decompress
+
 
 #constantes physiques
 G=6.674184e-11
@@ -43,13 +45,9 @@ class GenDataSet:
 
     """Classe générant des signaux des sets de training 50% dsignaux+bruits 50% de bruits"""
 
-    def __init__(self,mint=(10,50),NbB=1,tcint=(0.75,0.95),kindPSD='flat',kindTemplate='EM',Ttot=1,fe=2048,kindBank='linear',paramFile=None,step=0.1,choice='train',length=100,whitening=1,ninj=0,customPSD=None):
+    def __init__(self,mint=(10,50),NbB=1,tcint=(0.75,0.95),kindPSD='flat',kindTemplate='EM',Ttot=1,fe=2048,kindBank='linear',paramFile=None,step=0.1,choice='train',length=100,whitening=1,ninj=0):
     
                 
-        self.__custPSD=[]
-        if customPSD!=None:
-            self.__custPSD=customPSD
-
         self.__choice=choice
         self.__length=length
         self.__ninj=ninj
@@ -59,19 +57,36 @@ class GenDataSet:
             raise FileNotFoundError("Le fichier de paramètres n'existe pas")
 
 
-        start_time = time.time()
-        print("Starting dataset generation")
+        _brutePSD=[]
 
-        # Noise stream generator
-        #self.__NGenerator=gn.GenNoise(Ttot=self.__listTtot,fe=self.__listfe,kindPSD=self.__kindPSD,whitening=self.__whiten,customPSD=self.__custPSD)
-        # Template stream generator
-        self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD)
+        if self.__kindPSD=='realistic':
+
+            psd=[]
+            freq=[]
+
+            #with open("data/aligo_O4high.txt","r") as f:
+            with open(self.__PSDfile,"r") as f:
+                for line in f:
+                    value=[float(v) for v in line.split(' ')]
+                    if (value[0]<0.2*self.__fmin or value[0]>self.__fmax):
+                        continue
+                    psd.append(value[1]**2)
+                    freq.append(value[0])
+
+            f.close()
+            _brutePSD.append([psd,freq])  
+            self.__custPSD=_brutePSD 
+
+            print('Generate dataset with custom PSD:',self.__PSDfile)
+
+
+        start_time = time.time()
+        print(f"Starting dataset generation of {int(ninj)} templates from file {self.__kindBank}")
+
+        # Template (do it once)
+        self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD)
     
-        self.__listDelta_t=[] # pour le plot des portions de SNR
-        self.__listSNRevolTime=[]
-        self.__listSNRevol=[]
         self.__listfnames=[]
-        self.__listSNRchunksAuto=[[] for x in range(self.__nTtot)]
         self.__tmplist=[]
 
         print("1 After init --- %s seconds ---" % (time.time() - start_time))
@@ -98,7 +113,7 @@ class GenDataSet:
               mon_fichier_reader = csv.reader(mon_fichier, delimiter=',')
               lignes = [x for x in mon_fichier_reader]
           
-        if lignes[0][0]!='Ttot' or lignes[1][0]!='fe' or lignes[2][0]!='kindPSD' or lignes[3][0]!='mint' or lignes[4][0]!='tcint' or lignes[5][0]!='NbB' or lignes[6][0]!='kindTemplate' or lignes[7][0]!='kindBank' or lignes[8][0]!='step' or lignes[9][0]!='whitening'or len(lignes)!=10:
+        if lignes[0][0]!='Ttot' or lignes[1][0]!='fe' or lignes[2][0]!='kindPSD' or lignes[3][0]!='mint' or lignes[4][0]!='tcint' or lignes[5][0]!='NbB' or lignes[6][0]!='kindTemplate' or lignes[7][0]!='kindBank' or lignes[8][0]!='step' or lignes[9][0]!='whitening'or len(lignes)!=11:
             raise Exception("Dataset param file error")
         if not len(lignes[0])==len(lignes[1]):
             raise Exception("Ttot and fe vectors don't have the same size")
@@ -120,6 +135,8 @@ class GenDataSet:
             self.__listfe.append(self.__fe)
             
         self.__kindPSD=lignes[2][1]
+        if (self.__kindPSD=='realistic'):
+            self.__PSDfile=lignes[2][2]
         self.__mmin=min(float(lignes[3][1]),float(lignes[3][2]))
         self.__mmax=max(float(lignes[3][1]),float(lignes[3][2]))
         self.__tcmin=self.__Ttot+self.__listTtot[0]*(max(min(float(lignes[4][1]),float(lignes[4][2])),0.5)-1.)
@@ -128,6 +145,8 @@ class GenDataSet:
         self.__kindTemplate=lignes[6][1]
         self.__step=float(lignes[8][1])
         self.__whiten=int(lignes[9][1])
+        self.__fmin=float(lignes[10][1])
+        self.__fmax=float(lignes[10][2])        
         kindBank=lignes[7][1]
         self.__kindBank=kindBank
                     
@@ -186,7 +205,6 @@ class GenDataSet:
                     data=line.strip()
                     pars=data.split(' ')
                     # Cuts on total mass
-                    #print(pars[1]),float(pars[2])
                     if (float(pars[1])+float(pars[2])<self.__mmin and float(pars[1])+float(pars[2])>self.__mmax):
                         self.__tmplist.append([float(pars[0]),float(pars[1]),float(pars[2]),0])
                         compt+=1
@@ -223,20 +241,36 @@ class GenDataSet:
 
         # Now fill the object
         for i in range(0,self.__Ntemplate):
+
             if c%100==0:
                 print("Producing sample ",c,"over",self.__Ntemplate)
-            self.__TGenerator.majParams(m1=self.__GrilleMasses[i][0],m2=self.__GrilleMasses[i][1],s1=self.__GrilleSpins[i][0],s2=self.__GrilleSpins[i][1])
-
+            self.__TGenerator.majParams(m1=self.__GrilleMasses[i][0],m2=self.__GrilleMasses[i][1],s1z=self.__GrilleSpins[i][0],s2z=self.__GrilleSpins[i][1])
+        
             # Create the template            
             temp,freqs=self.__TGenerator.getNewSample(kindPSD=self.__kindPSD,
                                                              Tsample=self.__Ttot,
-                                                             tc=self.__TGenerator.duration(),norm=False)
+                                                             tc=self.__TGenerator.duration(),norm=True)
 
             # Fill the corresponding data
             for j in range(self.__nTtot):
-                self.__Sig[j][c]=temp[j]
-                self.__Noise[j][c]=freqs[j]
-            
+
+                if (not isinstance(freqs[j],int)):
+                    fact=1.
+                    if self.__whiten==0: # Special case, rescale if no whitening applied
+                        fact=1e20
+
+                    trunc=0
+                    if (len(temp[j])>len(freqs[j])):
+                        trunc=len(temp[j])-len(freqs[j])
+
+                    # Compress the data
+                    self.__Sig[j][c]=compress(list(fact*temp[j][trunc:]), precision=10)
+                    self.__Noise[j][c]=compress(list(freqs[j]), precision=5)
+                else:
+                    self.__Sig[j][c]=0
+                    self.__Noise[j][c]=0
+
+            del temp,freqs            
             c+=1
 
              
@@ -283,25 +317,35 @@ class GenDataSet:
         return obj
 
 
-    def getBkParams(self):
-        return self.__tmplist
+    def getBkParams(self,rank=0):
+        return self.__tmplist[rank]
     
     def getTemplate(self,rank=0):
         nbands=self.__nTtot
 
-        print("Getting a template based on",nbands,"frequency bands")
         dset=[]
         fset=[]
-        #print("Masses:",self.__GrilleMasses[rank])
-        #print("Spins:",self.__GrilleSpins[rank])
+
+        fact=1.
+        if self.__whiten==0:
+            fact=1e-20
 
         for i in range(nbands):
-            dset.append(self.__Sig[i][rank])
-            fset.append(self.__Noise[i][rank])
-            
+
+            if (not isinstance(self.__Sig[i][rank],int)):
+                dset.append(fact*npy.asarray(decompress(self.__Sig[i][rank])))
+                fset.append(npy.asarray(decompress(self.__Noise[i][rank])))
+            else:
+                dset.append(self.__Sig[i][rank])
+                fset.append(self.__Noise[i][rank])
         return dset,fset,(self.__listfe,self.__listTtot,self.__GrilleMasses[rank],self.__GrilleSpins[rank],self.__Ttot)
 
-    @property
+    def getParams(self,rank=0):
+
+        return (self.__listfe,self.__listTtot,self.__GrilleMasses[rank],self.__GrilleSpins[rank],self.__Ttot)
+
+
+    #@property
     def Ntemplate(self):
         return self.__Ntemplate
     @property
@@ -330,23 +374,12 @@ def parse_cmd_line():
     import argparse
     """Parseur pour la commande gendata"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("cmd", help="commande à choisir",choices=['noise', 'template', 'set', 'chunck', 'all'])
-    parser.add_argument("--kindPSD","-kp",help="Type de PSD à choisir",choices=['flat', 'analytic','realistic'],default='analytic')
-    parser.add_argument("--kindTemplate","-kt",help="Type de PSD à choisir",choices=['EM', 'EOB'],default='EM')
-    parser.add_argument("--time","-t",help="Durée du signal",type=float,nargs='+',default=[1., 9.])
-    parser.add_argument("-fe",help="Fréquence du signal",type=float,nargs='+',default=[2048, 512])
-    parser.add_argument("-fmin",help="Fréquence minimale visible par le détecteur",type=float,default=20)
-    parser.add_argument("-fmax",help="Fréquence maximale visible par le détecteur",type=float,default=1000)
-    parser.add_argument("-white",help="Whitening type: none (0), frequency domain (1), time domain (2)",type=int,default=1)
-    parser.add_argument("-snr",help="SNR (pour creation de sequence)",type=float,default=7.5)
-    parser.add_argument("-m1",help="Masse du premier objet",type=float,default=20)
-    parser.add_argument("-m2",help="Masse du deuxième objet",type=float,default=20)
-    parser.add_argument("-n",help="Number of injections for frame gen",type=float,default=10)
-    parser.add_argument("-length",help="Length of data chunck (in s)",type=float,default=300)
-    parser.add_argument("--set","-s",help="Choix du type de set par défaut à générer",default=None)
-    parser.add_argument("-step",help="Pas considéré pour la génération des paires de masses",type=float,default=0.1)
+    parser.add_argument("cmd", help="commande à choisir",choices=['bank'])
+    parser.add_argument("-n",help="Number template to produce",type=float,default=10)
+    parser.add_argument("-start",help="Where to start in the bank",type=float,default=0)
+    parser.add_argument("--set","-s",help="Name of the bank",default='test')
     parser.add_argument("--paramfile","-pf",help="Fichier csv des paramètres de set",default=None)
-    parser.add_argument("--verbose","-v",help="verbose mode",type=bool,default=False)
+
     
     args = parser.parse_args()
     return args
@@ -362,16 +395,9 @@ def main():
 
     args = parse_cmd_line()
 
-    if args.cmd=='template': # Simple Template generation
-        TGenerator=gt.GenTemplate(Tsample=args.time,fe=args.fe,kindTemplate=args.kindTemplate,fDmin=args.fmin,fDmax=args.fmax,whitening=0,verbose=args.verbose,customPSD=_brutePSD)
-        TGenerator.majParams(args.m1,args.m2)
-        TGenerator.getNewSample(kindPSD=args.kindPSD,Tsample=TGenerator.duration(),tc=TGenerator.duration(),norm=False)
-    
-    else: # Bank of template in the timing domain
-
-        cheminout = './generators/'
-        Generator=gd.GenDataSet(paramFile=args.paramfile,choice=args.set,length=args.length,ninj=args.n)
-        Generator.saveGenerator(cheminout)
+    cheminout = './generators/'
+    Generator=gd.GenDataSet(paramFile=args.paramfile,choice=args.set,length=args.start,ninj=args.n)
+    Generator.saveGenerator(cheminout)
     
 
 

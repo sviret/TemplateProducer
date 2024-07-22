@@ -119,10 +119,26 @@ class GenNoise:
             nPSDs=len(customPSD)
             rk=random.randint(0,nPSDs-1)
             #print(rk)
+            '''
             self._brutePSD=customPSD[rk]
             factor=float((self.__N//2+1)/len(self._brutePSD))
             self.__realPSD = npy.abs(ndimage.zoom(self._brutePSD,factor))
-    
+            '''
+            self._brutePSD=customPSD[rk][0]
+            freqs=customPSD[rk][1]
+            ifmax=int(min(self.__fmax,self.__fe/2)/self.__delta_f)
+            ifmin=int(self.__fmin/self.__delta_f)
+            idxprev=ifmin
+            self.__realPSD = npy.ones(self.__N, dtype=npy.float64) 
+
+            for i in range(len(freqs)):
+                idx=int(freqs[i]/self.__delta_f)
+                if idx<ifmin or idx>ifmax:
+                    continue
+                self.__realPSD[idxprev:idx]=self._brutePSD[i]
+                idxprev=idx
+            self.__realPSD[idxprev:ifmax]=self.__realPSD[idxprev-1]
+
         self._genPSD()
             
         if self.__verb:
@@ -398,8 +414,8 @@ class GenNoise:
 
     def getNewSample(self):
 
-        if self.__kindPSD=='realistic':
-            self.changePSD('realistic')
+        #if self.__kindPSD=='realistic':
+        #    self.changePSD('realistic')
 
         self._genNfFromPSD()               # Noise realisation in frequency domain
         self._genNtFromNf()                # Noise realisation in time domain
