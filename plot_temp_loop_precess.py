@@ -18,7 +18,7 @@ import pandas as pd
 import pickle
 import sys
 import ROOT as root
-from time import time
+import time
 import gen_template as gt
 import numpy as np
 from scipy.spatial import distance
@@ -62,10 +62,7 @@ def main():
     
     start_bk=float((bankkname.split('from')[1]).split('-')[1])
     end_bk=float((bankkname.split('from')[1]).split('-')[3])
-
-    #print(start_bk,end_bk)
-
-    data=gd.GenDataSet.readGenerator(bankkname)
+    start_time = time.time()
 
 
     Mc_b      = array('d', [0])
@@ -75,7 +72,6 @@ def main():
     chieff_b  = array('d', [0])
     chieff_p  = array('d', [0])
     chip_p    = array('d', [0])
-    tani      = array('d', [0])
     mf        = array('d', [0])
     cross     = array('d', [0])
     rk_b      = array('d', [0])
@@ -91,59 +87,34 @@ def main():
     tree3.Branch("chieff_b", chieff_b,     'chieff_b/D')
     tree3.Branch("chieff_p", chieff_p,     'chieff_p/D')
     tree3.Branch("chip_p",     chip_p,     'chip_p/D')
-    tree3.Branch("tani", tani,     'tani/D')
-    tree3.Branch("mf", mf,     'mf/D')
-    tree3.Branch("cross", cross,     'cross/D')
-    tree3.Branch("rk_b",           rk_b,     'rk_b/D')
-    tree3.Branch("rk_p",           rk_p,     'rk_p/D')
+    tree3.Branch("mf",             mf,     'mf/D')
+    tree3.Branch("cross",       cross,     'cross/D')
+    tree3.Branch("rk_b",         rk_b,     'rk_b/D')
+    tree3.Branch("rk_p",         rk_p,     'rk_p/D')
 
-    TaniSim=[]
-    CosinSim=[]
-    TanS_save=[]
-    CosS_save=[]
-    rank_save=0.
-    norm_max=[]
-    time_max=[]
-    norm_test_max=[]
-    Results=[]
 
-    
+
+    # Precess file info    
     nbcoals, masses, spins = readFilePrecess(precess_data)
-    
-    NbPrecess=range(len(nbcoals))
-    NbBank=range(data.Ntemplate())
-
     selected_idx_e=np.min([selected_idx_e,len(nbcoals)])
-    #print(selected_idx_i,selected_idx_e)
+
+    # Bank file info
+    data=gd.GenDataSet.readGenerator(bankkname)
     bkinfo=data.getParams(rank=0)
     fe_bands=bkinfo[0]
     t_bands=bkinfo[1]
     femax=np.max(fe_bands)
 
-    _brutePSD=[]
+    _brutePSD=bkinfo[5]
+    kindPSD=bkinfo[6]
+    fmin=bkinfo[7]
+    fmax=bkinfo[8]
 
-    fmin=15
-    fmax=1000
+    TGenerator=gt.GenTemplate(fDmin=fmin,fDmax=fmax,Tsample=bkinfo[1],fe=bkinfo[0],kindTemplate='IMRPhenomTPHM',whitening=1,PSD=kindPSD,customPSD=_brutePSD)
 
-    psd=[]
-    freq=[]
-
-    with open("data/aligo_O4high.txt","r") as f:
-        for line in f:
-            value=[float(v) for v in line.split(' ')]
-            if (value[0]<fmin or value[0]>fmax):
-                continue
-            psd.append(value[1]**2)
-            freq.append(value[0])
-
-    f.close()
-
-    _brutePSD.append([psd,freq])  
-
-    print('Into realistic loop')
-    print("Retrieved",len(_brutePSD),"different PSDs")
-
-    TGenerator=gt.GenTemplate(Tsample=bkinfo[1],fe=bkinfo[0],kindTemplate='IMRPhenomTPHM',whitening=1,PSD='realistic',customPSD=_brutePSD)
+    #
+    # 1 Produce and cache the precessing template info
+    # 
 
     for prec in range(selected_idx_i,selected_idx_e):
 
@@ -153,10 +124,8 @@ def main():
         sel_mass=masses[prec]
         sel_spins=spins[prec]
 
-
-
         TGenerator.majParams(sel_mass[0],sel_mass[1],s1x=sel_spins[0],s1y=sel_spins[1],s1z=sel_spins[2],s2x=sel_spins[3],s2y=sel_spins[4],s2z=sel_spins[5],Phic=0)
-        tmpl_test,freqs_test=TGenerator.getNewSample(kindPSD='analytic',Tsample=TGenerator.duration(),tc=TGenerator.duration(),norm=True)
+        tmpl_test,_=TGenerator.getNewSample(kindPSD=kindPSD,Tsample=TGenerator.duration(),tc=TGenerator.duration(),norm=True)
 
         # Put the template with precession info in same vectors than the bank one 
         h_of_t_test=[]
@@ -175,11 +144,10 @@ def main():
                 iband-=1
                 continue
 
-            if len(strain_t)!=lenchunk: # A partially zero suppressed chunk, repopulate it
-                #patch=np.zeros(lenchunk-len(strain_t))
+            if len(strain_t)!=lenchunk: # A partially zero suppressed chunk
                 starting_idx_test+=lenchunk-len(strain_t)*ratio
 
-            if ratio>1:
+            if ratio>1: # Resample up
                 strain_t = ndimage.zoom(strain_t,ratio,order=1)
 
             for dat in strain_t:
@@ -189,19 +157,19 @@ def main():
         cache_p_tmpl.append(h_of_t_test)
         cache_p_start.append(starting_idx_test)
 
-    # Caching bank data
+    print("1 After precession cache --- %s seconds ---" % (time.time() - start_time))
+
+    #
+    # Caching bank data (do it in chunck to spare computer memory)
     # 
+
     total=data.Ntemplate()
     npc=500
     nchunck = int(total/npc)+1
 
-    #total=100
-    #nchunck=3
-
-
-
     for step in range(nchunck):
     
+        print("Start of chunck --- %s seconds ---" % (time.time() - start_time))
         start=npc*step
         stop=np.min([npc*(step+1),data.Ntemplate()])
         cache_tmpl=[]
@@ -229,14 +197,11 @@ def main():
                 lenchunk=int(femax*t_bands[iband])
 
                 if not isinstance(strain, np.ndarray): # A zero supressed chunk
-                    #strain=np.zeros(lenchunk)
                     starting_idx+=lenchunk
                     iband-=1
                     continue
             
                 if len(strain)!=lenchunk: # A partially zero suppressed chunk, repopulate it
-                    #patch=np.zeros(lenchunk-len(strain))
-                    #strain=np.concatenate((patch,strain),axis=0)
                     starting_idx+=lenchunk-len(strain)*ratio
 
                 if ratio>1:
@@ -250,9 +215,11 @@ def main():
             cache_start.append(starting_idx)
 
 
+        print("After cache --- %s seconds ---" % (time.time() - start_time))
         print("STEP 2: Compare to the precessed template temporal data into cache...") 
         # Create the template with precession (do it once)
-
+        total_c=0.
+        total_m=0.
         for prec in range(selected_idx_i,selected_idx_e):
 
             if prec%10==0:
@@ -260,9 +227,6 @@ def main():
 
             sel_mass=masses[prec]
             sel_spins=spins[prec]
-
-            max_tmp=-1
-            max_mf=-1
 
             sel_chirp=np.power(sel_mass[0]*sel_mass[1],0.6)/np.power(sel_mass[0]+sel_mass[1],0.2)
             sel_ratio=sel_mass[1]/sel_mass[0]
@@ -283,11 +247,9 @@ def main():
 
             # Retrieve the templates and make the comparisons
             for NbB in range(start,stop):
-                #if NbB%100==0:
-                #    print("Testing template ",prec,NbB)
 
-                # Retrieve just the template parameter (no decompression at this stage)
-                #print(NbB)
+                # Retrieve just the template parameter 
+                
                 bkinfo=data.getParams(rank=NbB)
                 m1=bkinfo[2][0]
                 m2=bkinfo[2][1]
@@ -295,6 +257,8 @@ def main():
                 mratio=m2/m1
 
                 chirp_r=mchirp/sel_chirp
+
+                # Selection
 
                 if (chirp_r>3 or chirp_r<0.5) and mratio>0.3:
                     continue
@@ -327,27 +291,36 @@ def main():
                     norm=h_of_t
                     norm_test=h_of_t_test[startcomp:]    
 
-                
+                s1=time.time() - start_time
+                # First we just do a simple cross correlation
                 overlap=correlate(norm, norm_test, mode='full')
-                
                 crossc=overlap[np.argmax(overlap)]
-                
-                if crossc<0.15:
+                s2=time.time() - start_time
+                total_c+=s2-s1
+
+                if crossc<0.25:
                     continue
 
+                # OK do the match filter then
+
+                s1=time.time() - start_time
                 norm_fft=np.fft.fft(norm,norm='ortho')
                 norm_test_fft=np.fft.fft(norm_test,norm='ortho')
-                mfilter=np.sqrt(2*len(norm_fft))*np.abs(np.fft.ifft(norm_fft*np.conjugate(norm_test_fft),norm='ortho'))
+                mfilter=np.sqrt(len(norm_fft))*np.abs(np.fft.ifft(norm_fft*np.conjugate(norm_test_fft),norm='ortho'))
                 
                 mfi=np.max(mfilter)
-               
+                s2=time.time() - start_time
+                total_m+=s2-s1
                 mf[0]        =  mfi
                 cross[0]     =  crossc
                 tree3.Fill()
+            
+        print("After comp --- %s seconds ---" % (time.time() - start_time))
+        print(total_c,total_m)
 
     file.Write()
     file.Close()
-    #f.close()
+
 
 
 

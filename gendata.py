@@ -287,7 +287,7 @@ class GenDataSet:
 
         # Save the sample in an efficient way
         for k in range(self.__nTtot):
-            fname=dossier+self.__choice+'-'+self.__kindBank+'-templates_from-'+str(self.__length)+'-to-'+str(self.__length+self.__ninj)+'-'+str(k)+'of'+str(self.__nTtot)+'_samples'
+            fname=dossier+self.__choice+'-'+self.__kindBank+'-templates_from-'+str(int(self.__length))+'-to-'+str(int(self.__length+self.__ninj))+'-'+str(k)+'of'+str(self.__nTtot)+'_samples'
             npy.savez_compressed(fname,self.__Noise[k],self.__Sig[k])
             self.__listfnames.append(fname)
         
@@ -295,7 +295,7 @@ class GenDataSet:
         self.__Sig=[]
         self.__Noise=[]
         self.__TGenerator=[]
-        fichier=dossier+'summary-'+self.__choice+'-'+self.__kindBank+'-templates_from-'+str(self.__length)+'-to-'+str(self.__length+self.__ninj)+'-'+str(self.__nTtot)+'bands-'+str(self.__Ttot)+'s'+'.p'
+        fichier=dossier+'summary-'+self.__choice+'-'+self.__kindBank+'-templates_from-'+str(int(self.__length))+'-to-'+str(int(self.__length+self.__ninj))+'-'+str(self.__nTtot)+'bands-'+str(self.__Ttot)+'s'+'.p'
         f=open(fichier, mode='wb')
         pickle.dump(self,f)
         f.close()
@@ -342,7 +342,7 @@ class GenDataSet:
 
     def getParams(self,rank=0):
 
-        return (self.__listfe,self.__listTtot,self.__GrilleMasses[rank],self.__GrilleSpins[rank],self.__Ttot)
+        return (self.__listfe,self.__listTtot,self.__GrilleMasses[rank],self.__GrilleSpins[rank],self.__Ttot,self.__custPSD,self.__kindPSD,self.__fmin,self.__fmax)
 
 
     #@property

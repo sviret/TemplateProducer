@@ -1,9 +1,16 @@
 import numpy as np
 import h5py
-import ROOT as root
+import sys
+
 from array import array
 
-f=h5py.File("samples-rpo4a_v1-1366933504-23846400.hdf","r")
+args = sys.argv[1:] # Get input params
+
+hdffile=args[0]
+chip_cut=float(args[1])
+q_cut=float(args[2])
+
+f=h5py.File(hdffile,"r")
 a_group_key = list(f.keys())[0]
 ds_obj = f[a_group_key]
 data_fields=list(ds_obj.dtype.fields.keys())
@@ -29,31 +36,7 @@ SNR_H  = array('d', [0])
 SNR_L  = array('d', [0])
 coaphase  = array('d', [0])
 
-f = open("selected.txt", "w")
-#f.write("Woops! I have deleted the content!")
-
-file  = root.TFile.Open('test.root', 'recreate')
-
-tree3 = root.TTree("injections", "injections")
-tree3.Branch("mass1",     M1,     'M1/D')
-tree3.Branch("mass2",     M2,     'M2/D')
-tree3.Branch("mass1_s",   M1s,    'M1s/D')
-tree3.Branch("mass2_s",   M2s,    'M2s/D')
-tree3.Branch("tcoalH",    t_coalH,'t_coalH/D')
-tree3.Branch("tcoalL",    t_coalL,'t_coalL/D')
-tree3.Branch("tcoal",     t_coal, 't_coal/D')
-tree3.Branch("SNR_H",     SNR_H,  'SNR_H/D')
-tree3.Branch("SNR_L",     SNR_L,  'SNR_L/D')
-tree3.Branch("s1x",       s1x,    's1x/D')
-tree3.Branch("s1y",       s1y,    's1y/D')
-tree3.Branch("s1z",       s1z,    's1z/D')
-tree3.Branch("s2x",       s2x,    's2x/D')
-tree3.Branch("s2y",       s2y,    's2y/D')
-tree3.Branch("s2z",       s2z,    's2z/D')
-tree3.Branch("chi_eff",   chieff, 'chieff/D')
-tree3.Branch("chi_p",     chip,   'chip/D')
-tree3.Branch("Deff",      lumiD,  'lumiD/D')
-tree3.Branch("Theta0",    coaphase,  'coaphase/D')
+f = open(f"filter_chip{chip_cut}_q{q_cut}.txt", "w")
 
 compt=0
 fieldo={}
@@ -68,8 +51,6 @@ for inj in ds_obj:
 
     if compt%10000==0:
         print(compt)
-    #if compt==100000:
-    #    break
 
     t_coalH[0]=inj[fieldo['time_H']]
     t_coalL[0]=inj[fieldo['time_L']]
@@ -94,12 +75,9 @@ for inj in ds_obj:
         print(SNR_L[0],t_coal[0]) 
 
     
-    if (SNR_L[0]>6 and SNR_H[0]>6 and chip[0]>0.5 and M1[0]/M2[0]>3):
+    if (chip[0]>chip_cut and M2[0]/M1[0]<q_cut):
         f.write(f'{sel},{M1s[0]},{M2s[0]},{s1x[0]},{s1y[0]},{s1z[0]},{s2x[0]},{s2y[0]},{s2z[0]},{chieff[0]},{chip[0]},{t_coal[0]},{SNR_L[0]},{SNR_L[0]}\n')
         sel+=1
 
-    tree3.Fill()
     compt+=1
 f.close()
-file.Write()
-file.Close()
