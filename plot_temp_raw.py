@@ -63,7 +63,7 @@ def main():
     #fe_bands=[2048,1024,512,256,128]
     #t_bands=[1.,4.,25.,240.,420.]
 
-    femax=4096.
+    femax=2048.
 
     fe_bands=[2048,1024,512]
     t_bands=[1.,4.,25.]
@@ -71,15 +71,15 @@ def main():
     #fe_bands=[1024,512,512]
     #t_bands=[1.,4.,25.]
 
-    fe_bands=[4096]
-    t_bands=[30.]
+    #fe_bands=[4096]
+    #t_bands=[30.]
 
     tlen=np.sum(t_bands)
 
     _brutePSD=[]
 
-    fmin=15
-    fmax=2000
+    fmin=12
+    fmax=1000
 
     psd=[]
     freq=[]
@@ -149,7 +149,7 @@ def main():
         lenchunk=int(femax*t_bands[iband])
 
         if not isinstance(strain, np.ndarray): # A zero supressed chunk
-            strain=np.zeros(lenchunk)
+            realstrain=np.zeros(lenchunk)
             starting_idx+=lenchunk
         else:
             realstrain=strain
@@ -181,7 +181,7 @@ def main():
         lenchunk=int(femax*t_bands[iband])
 
         if not isinstance(strain_t, np.ndarray): # A zero supressed chunk
-            strain_t=np.zeros(lenchunk)
+            realstrain_t=np.zeros(lenchunk)
             starting_idx_test+=lenchunk
         else:
             realstrain_t=strain_t
