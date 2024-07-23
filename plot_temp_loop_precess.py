@@ -1,13 +1,6 @@
 '''
 Small macro to retrieve a template from a bank and compare it to another template
 
-Usage:
-
-python plot_temp.py A B
-
-with:
-A: rank of the template in the bank
-B: name of the bank file (pickle file)
 '''
 
 
@@ -298,7 +291,7 @@ def main():
                 s2=time.time() - start_time
                 total_c+=s2-s1
 
-                if crossc<0.25:
+                if crossc<0.15:
                     continue
 
                 # OK do the match filter then
