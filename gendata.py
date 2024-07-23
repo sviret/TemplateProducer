@@ -84,7 +84,7 @@ class GenDataSet:
         print(f"Starting dataset generation of {int(ninj)} templates from file {self.__kindBank}")
 
         # Template (do it once)
-        self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD)
+        self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fDmin=self.__fmin,fDmax=self.__fmax,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD)
     
         self.__listfnames=[]
         self.__tmplist=[]
