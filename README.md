@@ -3,4 +3,4 @@ Generate binary coalescences templates in the time-domain and compare them to ba
 
 More info on this page:
 
-(https://sviret.web.cern.ch/Welcome.php?n=Virgo.BKana)
+https://sviret.web.cern.ch/Welcome.php?n=Virgo.BKana
