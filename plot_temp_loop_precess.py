@@ -1,6 +1,13 @@
 '''
 Small macro to retrieve a template from a bank and compare it to another template
 
+Usage:
+
+python plot_temp.py A B
+
+with:
+A: rank of the template in the bank
+B: name of the bank file (pickle file)
 '''
 
 
@@ -58,17 +65,17 @@ def main():
     start_time = time.time()
 
 
-    Mc_b      = array('d', [0])
-    Mc_p      = array('d', [0])
-    q_b       = array('d', [0])
-    q_p       = array('d', [0])
-    chieff_b  = array('d', [0])
-    chieff_p  = array('d', [0])
-    chip_p    = array('d', [0])
-    mf        = array('d', [0])
-    cross     = array('d', [0])
-    rk_b      = array('d', [0])
-    rk_p      = array('d', [0])
+    Mc_b      = array('d', [0])   # Chirp mass of the bank template
+    Mc_p      = array('d', [0])   # Chirp mass of the precessing injection tested
+    q_b       = array('d', [0])   # Mass ratio (m2/m1) of the bank template
+    q_p       = array('d', [0])   # Mass ratio (m2/m1) of the precessing injection tested
+    chieff_b  = array('d', [0])   # Chi_eff of the bank template
+    chieff_p  = array('d', [0])   # Chi_eff of the precessing injection tested
+    chip_p    = array('d', [0])   # Chi_p of the precessing injection tested
+    mf        = array('d', [0])   # Fitting factor between b and p
+    cross     = array('d', [0])   # Cross correlation between b and p
+    rk_b      = array('d', [0])   # Rank of the bank template in the bank txt file
+    rk_p      = array('d', [0])   # Rank of the injection in the precessing text file
 
     file  = root.TFile.Open(f'result_prec_{suffix}_{selected_idx_i}_{selected_idx_e}_bk_{start_bk}_{end_bk}.root', 'recreate')
 
@@ -102,8 +109,8 @@ def main():
     kindPSD=bkinfo[6]
     fmin=bkinfo[7]
     fmax=bkinfo[8]
-
-    TGenerator=gt.GenTemplate(fDmin=fmin,fDmax=fmax,Tsample=bkinfo[1],fe=bkinfo[0],kindTemplate='IMRPhenomTPHM',whitening=1,PSD=kindPSD,customPSD=_brutePSD)
+    
+    TGenerator=gt.GenTemplate(fDmin=fmin,fDmax=fmax,Tsample=bkinfo[1],fe=bkinfo[0],kindTemplate='IMRPhenomTPHM',whitening=1,PSD=kindPSD,customPSD=_brutePSD,verbose=True)
 
     #
     # 1 Produce and cache the precessing template info
@@ -276,14 +283,15 @@ def main():
                 # Where to start the comparison
 
                 startcomp=starting_idx-starting_idx_test
-
+                #print(h_of_t_test)
+                #print(starting_idx,starting_idx_test)
                 if startcomp<0: # Prec frame shorter than bank one
                     norm=h_of_t[-startcomp:]
                     norm_test=h_of_t_test
                 else:
                     norm=h_of_t
                     norm_test=h_of_t_test[startcomp:]    
-
+            
                 s1=time.time() - start_time
                 # First we just do a simple cross correlation
                 overlap=correlate(norm, norm_test, mode='full')
@@ -291,7 +299,7 @@ def main():
                 s2=time.time() - start_time
                 total_c+=s2-s1
 
-                if crossc<0.15:
+                if crossc<0.25:
                     continue
 
                 # OK do the match filter then
