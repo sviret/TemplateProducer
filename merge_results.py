@@ -34,6 +34,7 @@ def main():
     # Retrieve the bank (do this once)
     fname1=args[0]
     fname2=args[1]
+    ninj=int(args[2])
 
     file1 = root.TFile.Open(fname1,"READ")
     file2 = root.TFile.Open(fname2,"READ")
@@ -70,10 +71,10 @@ def main():
     tree3.Branch("bank",     type,     'bank/D')
 
 
-    mf1c=np.zeros(5000)
-    mf2c=np.zeros(5000)
-    v2=np.zeros(5000)
-    v1=np.zeros(5000)
+    mf1c=np.zeros(ninj)
+    mf2c=np.zeros(ninj)
+    v2=np.zeros(ninj)
+    v1=np.zeros(ninj)
 
     rank=0
     for entry in tree1:
@@ -89,7 +90,7 @@ def main():
         v2[rk]=rank
         rank+=1
 
-    for i in range(0,5000):
+    for i in range(0,ninj):
 
         if mf2c[i]==0 and mf1c[i]==0:
             continue
@@ -99,7 +100,7 @@ def main():
         if (mf1c[i]>mf2c[i]):
             idx=int(v1[i])
             tree1.GetEntry(idx)
-            mf[0]=tree1.mf/np.sqrt(2)
+            mf[0]=tree1.mf
             Mc_p[0]=tree1.Mc_p
             q_p[0]=tree1.q_p
             chieff_p[0]=tree1.chieff_p
@@ -113,7 +114,7 @@ def main():
         else:
             idx=int(v2[i])
             tree2.GetEntry(idx)
-            mf[0]=tree2.mf/np.sqrt(2)
+            mf[0]=tree2.mf
             Mc_p[0]=tree2.Mc_p
             q_p[0]=tree2.q_p
             chieff_p[0]=tree2.chieff_p
