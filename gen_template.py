@@ -114,7 +114,7 @@ class GenTemplate:
         self._evolSnrFreq = []
         self.__verb=verbose
         self.__Ttot=self.__Tsample
-        self.__Noise=gn.GenNoise(Ttot=self.__Ttot,fe=self.__fe, kindPSD=PSD,fmin=self.__fDmin,fmax=self.__fDmaxd,whitening=self.__whiten,customPSD=self.__custPSD)
+        self.__Noise=gn.GenNoise(Ttot=self.__Ttot,fe=self.__fe, kindPSD=PSD,fmin=fDmin,fmax=self.__fDmaxd,whitening=self.__whiten,customPSD=self.__custPSD,verbose=False)
         
  
     '''
@@ -300,7 +300,7 @@ class GenTemplate:
                 fetmp=2*fs_tmp
                 ratio=fetmp/self.__fe
 
-            #print(m1,m2,mchirp,mratio)
+            #print(m1,m2,ratio,self.__fDmin)
             if self.__m1/Msol+self.__m2/Msol>=4.:
                 hp,hq = get_td_waveform(coa_phase=self.__Phic,approximant='SEOBNRv4_opt', mass1=self.__m1/Msol,mass2=self.__m2/Msol,spin1z=self.__s1z,spin2z=self.__s2z,delta_t=1./fetmp,f_lower=self.__fDmin)
 
@@ -317,7 +317,7 @@ class GenTemplate:
             f = utils.frequency_from_polarizations(hp, hq)
 
             limit=0.01*npy.max(npy.abs(npy.asarray(hp))) # Look for 99% amplitude drop after coalescence
-
+            c1=0
             for c1 in range(len(hp)-1,-1,-1): # Don't consider 0 at the end
                 if abs(hp.numpy()[c1])>limit:
                     break
@@ -386,7 +386,7 @@ class GenTemplate:
         # Compute the bins where the signal will be screend to avoid discontinuity
         # Should be between fDmin and fDmind
         #
-        
+        #print(self.__Tblack,self.__Tblack_start)
         iwmax=int(self.__Tblack/self.__delta_t)
         iwmin=int(self.__Tblack_start/self.__delta_t)
 
@@ -410,6 +410,13 @@ class GenTemplate:
         # depend on frequency, as the norm factor is 1/sqrt(N) only
         #
         self.__Stblack=S
+
+        w = npy.arange(len(self.__St))
+        if self.__verb:
+            plt.plot(w, self.__St)
+            plt.plot(w, self.__Stblack)
+            plt.grid()
+            plt.show()
         self.__Sf[:]=npy.fft.fft(S,norm='ortho')
         
         # Normalized to be coherent w/PSD def (the option ortho is doing a special normalization which is
@@ -761,6 +768,9 @@ class GenTemplate:
     
     def norma(self):
         return self.__norm
+    
+    def signal_raw(self):
+        return self.__Stblack
   
 ############################################################################################################################################################################################
 if __name__ == "__main__":

@@ -359,13 +359,15 @@ class GenNoise:
     def _genNtFromNf(self):
 
         self.__Nt=[]                       # Noise in time domain
-        
+        self.__Ntnow=[] 
+
         for j in range(self.__nTtot):      # one array per chunk
             self.__Nt.append([])
         
         # Inverse FFT over the total length (0/1)
+        self.__Ntnow = npy.fft.ifft(self.__Nf[:],norm='ortho').real
         if self.__whiten==0:
-            self.__Nt[0] = npy.fft.ifft(self.__Nf[:],norm='ortho').real
+            self.__Nt[0] = self.__Ntnow
         elif self.__whiten==1:
             self.__Nt[0] = npy.fft.ifft(self.__Nf[:]/npy.sqrt(self.__PSD),norm='ortho').real
         elif self.__whiten==2:
@@ -559,7 +561,10 @@ class GenNoise:
 
     def getNoise(self):
         return self.__Ntraw
-
+    
+    def getNoise_unwhite(self):
+        return self.__Ntnow
+    
     @property
     def nf(self):
         return self.__nf

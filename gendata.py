@@ -10,6 +10,7 @@ import matplotlib.cm as cm
 import gen_noise as gn
 import gen_template as gt
 from numcompress import compress, decompress
+from gwpy.timeseries import TimeSeries
 
 
 #constantes physiques
@@ -64,7 +65,6 @@ class GenDataSet:
             psd=[]
             freq=[]
 
-            #with open("data/aligo_O4high.txt","r") as f:
             with open(self.__PSDfile,"r") as f:
                 for line in f:
                     value=[float(v) for v in line.split(' ')]
@@ -79,27 +79,93 @@ class GenDataSet:
 
             print('Generate dataset with custom PSD:',self.__PSDfile)
 
+        if self.__choice!='frame':
+            start_time = time.time()
+            print(f"Starting dataset generation of {int(ninj)} templates from file {self.__kindBank}")
 
-        start_time = time.time()
-        print(f"Starting dataset generation of {int(ninj)} templates from file {self.__kindBank}")
-
-        # Template (do it once)
-        self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fDmin=self.__fmin,fDmax=self.__fmax,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD)
+            # Template (do it once)
+            self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fDmin=self.__fmin,fDmax=self.__fmax,fe=self.__listfe,kindTemplate=self.__kindTemplate,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD,verbose=False)
     
-        self.__listfnames=[]
-        self.__tmplist=[]
+            self.__listfnames=[]
+            self.__tmplist=[]
 
-        print("1 After init --- %s seconds ---" % (time.time() - start_time))
+            print("1 After init --- %s seconds ---" % (time.time() - start_time))
             
-        self._genGrille()   # Binary objects mass matrix
+            self._genGrille()   # Binary objects mass matrix
         
-        print("2 After grille --- %s seconds ---" % (time.time() - start_time))
+            print("2 After grille --- %s seconds ---" % (time.time() - start_time))
         
-        self._genSigSet()   # The signals
+            self._genSigSet()   # The signals
         
-        print("3 After signal --- %s seconds ---" % (time.time() - start_time))
+            print("3 After signal --- %s seconds ---" % (time.time() - start_time))
+        else:
+            start_time = time.time()
+            print("Starting frame generation")
+            self.__NGenerator=gn.GenNoise(Ttot=self.__listTtot,fe=self.__listfe,kindPSD=self.__kindPSD,fmin=self.__fmin,fmax=self.__fmax,whitening=self.__whiten,customPSD=self.__custPSD,verbose=False)
+            self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,fDmin=self.__fmin,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD,verbose=False)
+            self.__listfnames=[]
 
+            self._genNoiseSequence() # Produce a noise sequence over the full length requested 
+     
+            # Then produce the injections and superimpose them
+            ninj=int(self.__ninj)
+            interval=self.__length/(self.__ninj+1)
+
+            print(ninj,"signals will be injected in the data stream")
+            self.__injections=[]
+            
+            for i in range(ninj):
+
+                m1=npy.random.uniform(5,75)
+                m2=npy.random.uniform(5,75)
+                SNR=npy.random.uniform(15,15)
+                self.__TGenerator.majParams(m1,m2)
+
+                self.__TGenerator.getNewSample(kindPSD=self.__kindPSD,Tsample=self.__TGenerator.duration(),norm=True)
+                data=self.__TGenerator.signal()
+                data_r=self.__TGenerator.signal_raw()
+                norm=self.__TGenerator.norma()
+                #print(norm)
+
+
+                #randt=npy.random.uniform(self.__TGenerator.duration(),self.__length)
+                randt=npy.random.normal((i+1)*interval,interval/20.)
+                inj=[m1,m2,SNR,randt]
+                self.__injections.append(inj)
+
+                print("Injection",i,"(m1,m2,SNR,tc)=(",f'{m1:.1f}',f'{m2:.1f}',f'{SNR:.1f}',f'{randt:.1f}',")")
+        
+                idxstart=int((randt-self.__TGenerator.duration())*self.__listfe[0])
     
+                for i in range(len(data)):
+                    self.__Signal[0][idxstart+i]+=SNR*data[i]
+                    self.__Signal_raw[0][idxstart+i]+=SNR*data_r[i]/norm
+    
+                randt=npy.random.uniform(self.__TGenerator.duration(),self.__length)
+                data=[]
+                
+            self.__Noise[0] += self.__Signal[0] # Hanford
+            self.__Noise[1] += self.__Signal[0] # Livingston
+            self.__Noise_raw[0] += self.__Signal_raw[0] # Hanford
+            #self.__Noise_raw[1] += self.__Signal_raw[0] # Livingston
+            
+            npts=float(len(self.__Noise[0]))
+            norm=self.__length/npts
+            plt.figure(figsize=(10,5))
+            plt.xlabel('t (s)')
+            plt.ylabel('h(t)')
+            plt.grid(True, which="both", ls="-")
+            plt.plot(npy.arange(len(self.__Noise[0]))*norm, self.__Noise[0])
+            plt.plot(npy.arange(len(self.__Noise[0]))*norm, self.__Signal[0])
+            plt.show()
+
+            plt.figure(figsize=(10,5))
+            plt.xlabel('t (s)')
+            plt.ylabel('h(t)')
+            plt.grid(True, which="both", ls="-")
+            plt.plot(npy.arange(len(self.__Noise[0]))*norm, self.__Noise_raw[0])
+            plt.plot(npy.arange(len(self.__Noise[0]))*norm, self.__Signal_raw[0])
+            plt.show()
             
     '''
     DATASET 1/
@@ -273,7 +339,47 @@ class GenDataSet:
             del temp,freqs            
             c+=1
 
-             
+    # Noise 
+    def _genNoiseSequence(self):
+
+        # Noise is produced from PSD unsing inverse FFTs, therefore we try to 
+        # keep them reasonably long
+
+        nsamples=int(self.__length/self.__NGenerator.Ttot)
+        if self.__length/self.__NGenerator.Ttot-nsamples>0:
+            nsamples+=1
+
+        npts=int(self.__length*self.__fe)
+
+        # Whitened info
+        self.__Noise=[]
+        self.__Signal=[]
+
+        # Raw info
+        self.__Noise_raw=[]
+        self.__Signal_raw=[]
+
+        chunck_V=[]
+        chunck_H=[]
+        strain_V=[]
+        strain_H=[]
+        for i in range(nsamples):
+            self.__NGenerator.getNewSample()
+            chunck_V.append(self.__NGenerator.getNoise())
+            strain_V.append(self.__NGenerator.getNoise_unwhite())
+            self.__NGenerator.getNewSample()
+            chunck_H.append(self.__NGenerator.getNoise())
+            strain_H.append(self.__NGenerator.getNoise_unwhite())
+
+        self.__Noise.append(npy.ravel(npy.squeeze(chunck_V))[0:npts]) # Hanford
+        self.__Noise.append(npy.ravel(npy.squeeze(chunck_H))[0:npts]) # Livingston
+        self.__Noise_raw.append(npy.ravel(npy.squeeze(strain_V))[0:npts]) # Hanford
+        self.__Noise_raw.append(npy.ravel(npy.squeeze(strain_H))[0:npts]) # Livingston
+        self.__Signal.append(npy.zeros(len(self.__Noise[0])))
+        self.__Signal.append(npy.zeros(len(self.__Noise[0])))
+        self.__Signal_raw.append(npy.zeros(len(self.__Noise[0])))
+        self.__Signal_raw.append(npy.zeros(len(self.__Noise[0])))
+ 
      
     '''
     DATASET 4/
@@ -296,6 +402,28 @@ class GenDataSet:
         self.__Noise=[]
         self.__TGenerator=[]
         fichier=dossier+'summary-'+self.__choice+'-'+self.__kindBank+'-templates_from-'+str(int(self.__length))+'-to-'+str(int(self.__length+self.__ninj))+'-'+str(self.__nTtot)+'bands-'+str(self.__Ttot)+'s'+'.p'
+        f=open(fichier, mode='wb')
+        pickle.dump(self,f)
+        f.close()
+
+    def saveFrame(self,dossier):
+        if not(os.path.isdir(dossier)):
+            raise FileNotFoundError("Le dossier de sauvegarde n'existe pas")
+
+        # Save the sample in an efficient way
+        fname=dossier+self.__choice+'-'+self.__kindPSD+'-'+self.__kindTemplate+'-'+str(self.__length)+'s'+'-data'
+        npy.savez_compressed(fname,self.__Noise[0],self.__Noise[1],self.__Signal[0])
+        self.__listfnames.append(fname)
+        
+        t = TimeSeries(self.__Noise_raw[0],channel="Noise_and_injections",sample_rate=2048,unit="time",t0=self.__length)
+        u = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=2048,unit="time",t0=0.)
+        t.write(f"{fname}_Strain.gwf")
+        u.write(f"{fname}_Noise.gwf") # MBTA needs pure noise to compute the PSD
+
+        # Save the object without the samples (basically just the weights)
+        self.__Signal=[]
+        self.__Noise=[]
+        fichier=dossier+self.__choice+'-'+str(self.__nTtot)+'chunk'+'-'+self.__kindPSD+'-'+self.__kindTemplate+'-'+str(self.__whiten)+'-'+str(self.__length)+'s'+'.p'
         f=open(fichier, mode='wb')
         pickle.dump(self,f)
         f.close()
@@ -374,10 +502,11 @@ def parse_cmd_line():
     import argparse
     """Parseur pour la commande gendata"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("cmd", help="commande à choisir",choices=['bank'])
+    parser.add_argument("cmd", help="commande à choisir",choices=['bank','frame'])
     parser.add_argument("-n",help="Number template to produce",type=float,default=10)
     parser.add_argument("-start",help="Where to start in the bank",type=float,default=0)
     parser.add_argument("--set","-s",help="Name of the bank",default='test')
+    parser.add_argument("-length",help="Length of data chunck (in s)",type=float,default=300)
     parser.add_argument("--paramfile","-pf",help="Fichier csv des paramètres de set",default=None)
 
     
@@ -394,10 +523,15 @@ def main():
     import gen_template as gt
 
     args = parse_cmd_line()
-
     cheminout = './generators/'
-    Generator=gd.GenDataSet(paramFile=args.paramfile,choice=args.set,length=args.start,ninj=args.n)
-    Generator.saveGenerator(cheminout)
+    
+    if args.set=='frame':
+        set='frame'
+        Generator=gd.GenDataSet(paramFile=args.paramfile,choice=set,length=args.length,ninj=args.n)
+        Generator.saveFrame(cheminout)
+    else:
+        Generator=gd.GenDataSet(paramFile=args.paramfile,choice=args.set,length=args.start,ninj=args.n)
+        Generator.saveGenerator(cheminout)
     
 
 
