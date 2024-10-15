@@ -365,7 +365,18 @@ class GenNoise:
             self.__Nt.append([])
         
         # Inverse FFT over the total length (0/1)
-        self.__Ntnow = npy.fft.ifft(self.__Nf[:],norm='ortho').real
+      
+        # Normalization factor for the non-whithened FFT
+        # In forward mode the norm is 1/N for fft and nothing for ifft
+        #
+        # So the only remaining normalisation is linked to the PSD binning
+        # The power of one bin is equal to PSD*df (size of the bin)
+        # As we use the 2 sided FFT we should rescale so that we have PSD*df/2
+        # For the ASD we take the square root, so sqrt(PSD*df/2)
+
+
+        self.__Ntnow = npy.fft.ifft(self.__Nf[:]*npy.sqrt(self.__delta_f/2),norm='forward').real
+      
         if self.__whiten==0:
             self.__Nt[0] = self.__Ntnow
         elif self.__whiten==1:
