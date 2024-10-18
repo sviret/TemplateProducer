@@ -458,10 +458,14 @@ class GenDataSet:
         npy.savez_compressed(fname,self.__Noise[0],self.__Noise[1],self.__Signal[0])
         self.__listfnames.append(fname)
         
-        t = TimeSeries(self.__Noise_raw[0],channel="Noise_and_injections",sample_rate=2048,unit="time",t0=self.__length)
-        u = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=2048,unit="time",t0=0.)
+        gpsinit=1400000000
+      
+        t = TimeSeries(self.__Noise_raw[0],channel="Noise_and_injections",sample_rate=self.__fe,unit="time",t0=self.__length+gpsinit)
+        u = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=self.__fe,unit="time",t0=gpsinit)
+        v = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=self.__fe,unit="time",t0=gpsinit+self.__length)
         t.write(f"{fname}_Strain.gwf")
         u.write(f"{fname}_Noise.gwf") # MBTA needs pure noise to compute the PSD
+        v.write(f"{fname}_Noise2.gwf") 
 
         # Save the object without the samples (basically just the weights)
         self.__Signal=[]
