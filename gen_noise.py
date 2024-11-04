@@ -118,26 +118,39 @@ class GenNoise:
             self.__custom=customPSD
             nPSDs=len(customPSD)
             rk=random.randint(0,nPSDs-1)
-            #print(rk)
-            '''
-            self._brutePSD=customPSD[rk]
-            factor=float((self.__N//2+1)/len(self._brutePSD))
-            self.__realPSD = npy.abs(ndimage.zoom(self._brutePSD,factor))
-            '''
+            
             self._brutePSD=customPSD[rk][0]
             freqs=customPSD[rk][1]
             ifmax=int(min(self.__fmax,self.__fe/2)/self.__delta_f)
             ifmin=int(self.__fmin/self.__delta_f)
             idxprev=ifmin
-            self.__realPSD = npy.ones(self.__N, dtype=npy.float64) 
+            self.__realPSD = npy.zeros(self.__N, dtype=npy.float64) 
 
+            count=0
             for i in range(len(freqs)):
                 idx=int(freqs[i]/self.__delta_f)
+                
                 if idx<ifmin or idx>ifmax:
                     continue
-                self.__realPSD[idxprev:idx]=self._brutePSD[i]
-                idxprev=idx
+                
+                if idx!=idxprev:
+                    # Special case (initialization)
+                    if count==0:
+                        self.__realPSD[idxprev:idx]=self._brutePSD[i]
+                    else:    
+                        self.__realPSD[idxprev]/=count
+                        self.__realPSD[idxprev:idx]=self.__realPSD[idxprev]
+             
+                        count=0
+                    idxprev=idx
+
+                self.__realPSD[idxprev]+=self._brutePSD[i]
+                count+=1
+                
             self.__realPSD[idxprev:ifmax]=self.__realPSD[idxprev-1]
+
+
+
 
         self._genPSD()
             
@@ -365,18 +378,17 @@ class GenNoise:
             self.__Nt.append([])
         
         # Inverse FFT over the total length (0/1)
-      
-        # Normalization factor for the non-whithened FFT
+
+        # Normalization factor for the FFT
         # In forward mode the norm is 1/N for fft and nothing for ifft
         #
         # So the only remaining normalisation is linked to the PSD binning
         # The power of one bin is equal to PSD*df (size of the bin)
-        # As we use the 2 sided FFT we should rescale so that we have PSD*df/2
-        # For the ASD we take the square root, so sqrt(PSD*df/2)
+        # For the ASD we take the square root, so sqrt(PSD*df)
 
 
-        self.__Ntnow = npy.fft.ifft(self.__Nf[:]*npy.sqrt(self.__delta_f/2),norm='forward').real
-      
+        self.__Ntnow = npy.fft.ifft(self.__Nf[:]*npy.sqrt(self.__delta_f),norm='forward').real
+        
         if self.__whiten==0:
             self.__Nt[0] = self.__Ntnow
         elif self.__whiten==1:
@@ -387,6 +399,10 @@ class GenNoise:
       
         
         self.__Ntraw = self.__Nt[0].copy()
+        #mu, sigma = scipy.stats.norm.fit(self.__Ntraw)
+        #print(f"Width: {sigma}")
+        #print(f"Mean: {mu}")
+
         self.__Nf2=npy.fft.fft(self.__Nt[0],norm='ortho') # Control
   
         #Run the main FIR filter
