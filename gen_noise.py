@@ -54,7 +54,7 @@ detector acceptance
 
 class GenNoise:
 
-    def __init__(self,Ttot=1,fe=2048,kindPSD='flat',nsamp=160,fmin=20,fmax=1500,whitening=1,customPSD=None,verbose=False):
+    def __init__(self,Ttot=1,fe=2048,kindPSD='flat',nsamp=10,fmin=20,fmax=1500,whitening=1,customPSD=None,verbose=False):
 
         if not((isinstance(Ttot,int) or isinstance(Ttot,float) or isinstance(Ttot,list)) and (isinstance(fe,int) or isinstance(fe,float) or isinstance(fe,list))):
             raise TypeError("Ttot et fe doivent être des ints, des floats, ou des list")
@@ -112,6 +112,7 @@ class GenNoise:
         self.__Nf2=npy.zeros(self.__N,dtype=complex)         # Noise FFT (whitened if required)
         self.__Nfr=npy.zeros(self.__N, dtype=npy.float64)    # Noise FFT real part
         self.__Nfi=npy.zeros(self.__N, dtype=npy.float64)    # Noise FFT imaginary part
+        self.__PSDloc=npy.ones(self.__N, dtype=npy.float64)    # Noise FFT imaginary part
         self.__custom=[]
 
         if kindPSD=='realistic' and len(customPSD)>0:
@@ -222,19 +223,19 @@ class GenNoise:
         # Generate the function
         if self.__kindPSD=='flat':
             sigma=2e-23
-            self.__PSD[ifmin:ifmax]=sigma**2
+            self.__PSD[ifmin:ifmax]=0.5*sigma**2
             self.__PSD[-1:-self.__N//2:-1]=self.__PSD[1:self.__N//2] # Double sided
         elif self.__kindPSD=='analytic':
-            self.__PSD[ifmin:ifmax]=self.Sh(abs(self.__F[ifmin:ifmax]))
+            self.__PSD[ifmin:ifmax]=0.5*self.Sh(abs(self.__F[ifmin:ifmax]))
             self.__PSD[-1:-self.__N//2:-1]=self.__PSD[1:self.__N//2]
         elif self.__kindPSD=='realistic':
-            self.__PSD[ifmin:ifmax]=self.__realPSD[ifmin:ifmax]
+            self.__PSD[ifmin:ifmax]=0.5*self.__realPSD[ifmin:ifmax]
             self.__PSD[-1:-self.__N//2:-1]=self.__PSD[1:self.__N//2]
 
 
         # Prepare the time-domain whitening filters
 
-        self.__invPSD=npy.sqrt(1./npy.abs(self.__PSD))
+        self.__invPSD=npy.sqrt(1./npy.abs(2*self.__PSD))
         #print(self.__invPSD)
         freqs=self.__Fnorm[0:self.__N//2]
         ampl=self.__invPSD[0:self.__N//2]
@@ -332,12 +333,28 @@ class GenNoise:
 
         # The power at a given frequency is taken around the corresponding PSD value
         # We produce over the full frequency range
-        self.__Nfr[0:self.__N//2+1]=npy.random.normal(npy.sqrt(self.__PSD[0:self.__N//2+1]),npy.sqrt(self.__PSD[0:self.__N//2+1]/self.__nsamp))
-        self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
+        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(npy.random.normal(self.__PSD[0:self.__N//2+1],self.__PSD[0:self.__N//2+1]/self.__nsamp))
+        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])*npy.random.normal(1,0.1,self.__N//2+1)
+        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])*0.9
+        #self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
 
         ifmax=int(min(self.__fmax,self.__fe/2)/self.__delta_f)
         ifmin=int(self.__fmin/self.__delta_f)
-        
+        self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]*npy.random.normal(1,0.2,ifmax-ifmin)
+        self.__PSDloc[-1:-self.__N//2:-1]=self.__PSDloc[1:self.__N//2]
+
+        self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSDloc[0:self.__N//2+1])
+        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])
+        self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
+
+        #print(npy.sum(self.__PSD[ifmin:ifmax])-npy.sum(self.__PSDloc[ifmin:ifmax]))
+        #plt.hist((self.__PSDloc[ifmin:ifmax]/self.__PSD[ifmin:ifmax]),bins=100,label='Sn(f)')
+        #plt.hist(npy.random.normal(1,0.1,ifmax-ifmin),bins=100,label='Sn(f)')
+        #plt.hist(self.__PSDloc[ifmin:ifmax],bins=100,label='Sn(f)')
+        #plt.hist(self.__PSD[ifmin:ifmax]*1e46,bins=100,label='Sn(f)')
+        #plt.xlabel('f (Hz)')
+        #plt.show()
+
         # The initial phase is randomized
         # randn provides a nuber following a normal law centered on 0 with sigma=1, so increase a
         # bit to make sure you cover all angular values (thus the factor 100)
@@ -575,8 +592,14 @@ class GenNoise:
         plt.xscale('log')
         plt.grid(True, which="both", ls="-")
 
+    
     def getNf(self):
         return self.__Nf
+
+    @property
+    def PSDloc(self):
+        #print('hrer')
+        return self.__PSDloc
 
     @property
     def kindPSD(self):

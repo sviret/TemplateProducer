@@ -81,9 +81,11 @@ class GenDataSet:
 
             f.close()
             _brutePSD.append([psd,freq])  
-            self.__custPSD=_brutePSD 
+            #self.__custPSD=_brutePSD 
 
             print('Generate dataset with custom PSD:',self.__PSDfile)
+
+        self.__custPSD=_brutePSD
 
         if self.__choice!='frame':
             start_time = time.time()
