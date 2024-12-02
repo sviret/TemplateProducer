@@ -115,7 +115,7 @@ class GenTemplate:
         self.__verb=verbose
         self.__Ttot=self.__Tsample
         self.__Noise=gn.GenNoise(Ttot=self.__Ttot,fe=self.__fe, kindPSD=PSD,fmin=fDmin,fmax=self.__fDmaxd,whitening=self.__whiten,customPSD=self.__custPSD,verbose=False)
-        
+        self.__Noise.getNewSample()
  
     '''
     Template 1/10
@@ -421,7 +421,8 @@ class GenTemplate:
         
         # Normalized to be coherent w/PSD def (the option ortho is doing a special normalization which is
         # fine only if you do the invert tranform afterward)
-        self.__Sfn[:]=self.__Sf[:]/(npy.sqrt(self.__N)*self.__delta_f)
+        #self.__Sfn[:]=self.__Sf[:]/(npy.sqrt(len(S))*self.__delta_f)
+        self.__Sfn[:]=npy.fft.fft(S,norm='forward')/self.__delta_f
         del S
     
     '''
@@ -441,7 +442,7 @@ class GenTemplate:
         #print("A")   
         ifmax=int(min(self.__fDmaxd,self.__fe/2)/self.__delta_f)
         ifmin=int(self.__fDmind/self.__delta_f)
-        
+        ifmin2=int(20/self.__delta_f)
         if self.__verb:
             print(f"Calculations will be done in frequency range ({self.__fDmind},{min(self.__fDmaxd,self.__fe/2)})")
         
@@ -451,13 +452,50 @@ class GenTemplate:
         # if Ttot is lower than time in the detector acceptance
             
         freqs=npy.arange(len(self.__Sf))*self.__delta_f
-
+        #print(len(freqs),ifmin,ifmax)
         # <x**2(t)> calculation
         # Sfn and PSD have the same normalisation
         #
         # !!! PSD=Sn/2 !!!
+
+        '''
+        f = open("datasim.txt", "a")
+        for i in range(ifmin,ifmax):
+            #f.write(f"{i*self.__delta_f}/{npy.sqrt((self.__Sfn[i]*npy.conjugate(self.__Sfn[i])).real)}/{1/(Noise.PSD[i])}\n")
+            f.write(f"{i*self.__delta_f} / {npy.sqrt((self.__Sfn[i]*npy.conjugate(self.__Sfn[i])).real)} / {npy.sqrt(2*self.__delta_f*npy.sum(self.__Sfn[ifmin:i]*npy.conjugate(self.__Sfn[ifmin:i])/(Noise.PSD[ifmin:i])).real):.2f} / {1/(2*Noise.PSD[i])}\n")
+        f.close()
         
-        ropt=npy.sqrt(2*npy.trapz(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax]),freqs[ifmin:ifmax]).real)
+        f = open("datasim2.txt", "a")
+        for i in range(ifmin2,ifmax):
+            #f.write(f"{i*self.__delta_f}/{npy.sqrt((self.__Sfn[i]*npy.conjugate(self.__Sfn[i])).real)}/{1/(Noise.PSD[i])}\n")
+            f.write(f"{i*self.__delta_f} / {npy.sqrt((self.__Sfn[i]*npy.conjugate(self.__Sfn[i])).real)} / {npy.sqrt(2*self.__delta_f*npy.sum(self.__Sfn[ifmin2:i]*npy.conjugate(self.__Sfn[ifmin2:i])/(Noise.PSDloc[ifmin2:i])).real):.2f} / {npy.sqrt(2*Noise.PSDloc[i])}\n")
+        f.close()
+        '''
+        #print(Noise.PSDloc[590:605],Noise.PSD[590:605])
+        #check=npy.average((Noise.PSDloc[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax])).real
+
+
+        #plt.plot(self.__F[ifmin:ifmax],(Noise.PSD[ifmin:ifmax]/Noise.PSDloc[ifmin:ifmax]).real,'-',label='Sn(f)')
+        #plt.hist((Noise.PSDloc[ifmin:ifmax]/Noise.PSD[ifmin:ifmax]).real,bins=100,label='Sn(f)')
+        #plt.xlabel('f (Hz)')
+        #plt.show()
+
+
+        #ropt=2*self.__delta_f*npy.sum((1/(1e42*Noise.PSD[ifmin:ifmax])-1/(1e42*Noise.PSDloc[ifmin:ifmax])).real)
+        #noisy=(2*self.__delta_f*npy.sum(1/(Noise.PSD[ifmin:ifmax])).real)
+        #signaly=self.__delta_f*npy.sum(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])).real
+        #noisy=(self.__delta_f*npy.sum(1/(2*Noise.PSDloc[ifmin:ifmax])).real)
+        #signaly=self.__delta_f*npy.sum(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])).real
+
+        #print(tmpl,self.__delta_f*npy.sum(1/(2*Noise.PSD[ifmin:ifmax])).real,self.__delta_f*npy.sum(1/(2*Noise.PSDloc[ifmin:ifmax])).real)
+
+        #print(ropt,ropt1)
+        #ropt2=npy.sqrt(2*self.__delta_f*npy.sum((self.__Sfn**2).real/(Noise.PSDloc)).real)
+        ropt=npy.sqrt(2*self.__delta_f*npy.sum(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSDloc[ifmin:ifmax])).real)
+        
+        #print(noisy,signaly,ropt)
+        #ropt1=npy.sqrt(2*self.__delta_f*npy.sum(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax])).real)
+        #ropt1=npy.sqrt(2*npy.trapz(self.__Sfn[ifmin:ifmax]*npy.conjugate(self.__Sfn[ifmin:ifmax])/(Noise.PSD[ifmin:ifmax]),freqs[ifmin:ifmax]).real)
         #
         # Definition of the SNRmax used here is available in Eqn 26 of the foll. paper:
         #
@@ -465,7 +503,7 @@ class GenTemplate:
         #
         # !!! This value is not depending on Topt or fe !!!
         
-
+        #print(check,ropt,ropt1,ropt2)
         if self.__verb:
             print(f'MF output value when template is filtered by noise (No angular or antenna effects, D=1Mpc) over the total period is equal to {ropt:.2f}',self.__delta_f)
         self.__norm=ropt
@@ -491,6 +529,13 @@ class GenTemplate:
         # Important point, noise and signal are produced over the same length, it prevent binning pbs
         # We just produce the PSD here, to do the weighting
         rho=1.
+
+
+        self.__Noise.getNewSample() # To update the SNRmax value
+
+        #print(self.__Noise.PSDloc[1000:1005],self.__Noise.PSD[1000:1005])
+        
+
         if norm:
             rho=self.rhoOpt(Noise=self.__Noise)         # Get SNRopt
         
@@ -559,6 +604,7 @@ class GenTemplate:
     
     def getNewSample(self,kindPSD='flat',Tsample=1,tc=None,norm=True):
         
+
         if isinstance(Tsample,list):
             Tsample=sum(Tsample)
     
@@ -572,11 +618,11 @@ class GenTemplate:
         self._genStFromParams()
 
         # Go in the frequency domain
-        if self.__whiten!=0:
+        if self.__whiten!=-10:
             self._genSfFromSt()
 
         # Whiten the signal and normalize it to SNR=1
-        if self.__whiten!=0:
+        if self.__whiten!=-10:
             self._whitening(kindPSD,Tsample,norm)
         
         # Resample it if needed

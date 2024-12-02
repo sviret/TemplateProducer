@@ -340,11 +340,12 @@ class GenNoise:
 
         ifmax=int(min(self.__fmax,self.__fe/2)/self.__delta_f)
         ifmin=int(self.__fmin/self.__delta_f)
-        self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]*npy.random.normal(1,0.2,ifmax-ifmin)
+        #self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]
+        self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]*npy.random.normal(1,0.05,ifmax-ifmin)
         self.__PSDloc[-1:-self.__N//2:-1]=self.__PSDloc[1:self.__N//2]
 
         self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSDloc[0:self.__N//2+1])
-        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])
+        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSDloc[0:self.__N//2+1])*npy.random.normal(1,0.5,self.__N//2+1)
         self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
 
         #print(npy.sum(self.__PSD[ifmin:ifmax])-npy.sum(self.__PSDloc[ifmin:ifmax]))
