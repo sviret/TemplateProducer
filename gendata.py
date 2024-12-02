@@ -7,12 +7,18 @@ import os
 import math
 import time
 import matplotlib.cm as cm
+
 import gen_noise as gn
 import gen_template as gt
 from numcompress import compress, decompress
 from gwpy.timeseries import TimeSeries
 
-
+"""
+Normallement gendata fonction exactement comme avant avec les meme commande.
+Mais mtn quand on rentre la commande pour generer la Frame dans le terminal,
+On peut ajouter un terme -tf chemin/du/fichier/texte
+On prend des lignes aleatoire dans le fichier et genere les signaux a partir de ca.
+"""
 #constantes physiques
 G=6.674184e-11
 Msol=1.988e30
@@ -46,7 +52,7 @@ class GenDataSet:
 
     """Classe générant des signaux des sets de training 50% dsignaux+bruits 50% de bruits"""
 
-    def __init__(self,mint=(10,50),NbB=1,tcint=(0.75,0.95),kindPSD='flat',kindTemplate='EM',Ttot=1,fe=2048,kindBank='linear',paramFile=None,step=0.1,choice='train',length=100,whitening=1,ninj=0):
+    def __init__(self,mint=(10,50),NbB=1,tcint=(0.75,0.95),kindPSD='flat',kindTemplate='EM',Ttot=1,fe=2048,kindBank='linear',paramFile=None,step=0.1,choice='train',length=100,whitening=1,ninj=0, txtfile=None):
     
                 
         self.__choice=choice
@@ -56,7 +62,7 @@ class GenDataSet:
             self._readParamFile(paramFile)
         else:
             raise FileNotFoundError("Le fichier de paramètres n'existe pas")
-
+        self.fromtxtfile=True if txtfile is not None else False
 
         _brutePSD=[]
 
@@ -75,10 +81,11 @@ class GenDataSet:
 
             f.close()
             _brutePSD.append([psd,freq])  
+            #self.__custPSD=_brutePSD 
+
             print('Generate dataset with custom PSD:',self.__PSDfile)
 
-            #print(self.__fmax,self.__fmin)
-        self.__custPSD=_brutePSD 
+        self.__custPSD=_brutePSD
 
         if self.__choice!='frame':
             start_time = time.time()
@@ -103,7 +110,7 @@ class GenDataSet:
             start_time = time.time()
             print("Starting frame generation")
             self.__NGenerator=gn.GenNoise(Ttot=self.__listTtot,fe=self.__listfe,kindPSD=self.__kindPSD,fmin=self.__fmin,fmax=self.__fmax,whitening=self.__whiten,customPSD=self.__custPSD,verbose=False)
-            self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,fDmin=self.__fmin,fDmax=self.__fmax,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD,verbose=False)
+            self.__TGenerator=gt.GenTemplate(Tsample=self.__listTtot,fe=self.__listfe,kindTemplate=self.__kindTemplate,fDmin=self.__fmin,whitening=self.__whiten,customPSD=self.__custPSD,PSD=self.__kindPSD,verbose=False)#, fromtxtfile = self.fromtxtfile)
             self.__listfnames=[]
 
             self._genNoiseSequence() # Produce a noise sequence over the full length requested 
@@ -112,16 +119,43 @@ class GenDataSet:
             ninj=int(self.__ninj)
             interval=self.__length/(self.__ninj+1)
 
+            if self.fromtxtfile :
+                if os.path.isfile(txtfile):
+                    self.txt_params = self._readtxtFile(txtfile)
+                    print("Retrieving templates parameters from txt file")
+                else:
+                    raise FileNotFoundError("Le fichier texte des templates n'existe pas")
+
+
             print(ninj,"signals will be injected in the data stream")
             self.__injections=[]
             
             for i in range(ninj):
+                if self.fromtxtfile :
+                    ligne_aleatoire = npy.random.choice(self.txt_params).strip().split(',')
+                    # !id,m1,m2,spin1x,spin1y,spin1z,spin2x,spin2y,spin2z,chieff,chip,tcoal,SNRH,SNRL
+                    id = int(ligne_aleatoire[0])
+                    m1 = float(ligne_aleatoire[1])
+                    m2 = float(ligne_aleatoire[2])
+                    spin1x = float(ligne_aleatoire[3])
+                    spin1y = float(ligne_aleatoire[4])
+                    spin1z = float(ligne_aleatoire[5])
+                    spin2x = float(ligne_aleatoire[6])
+                    spin2y = float(ligne_aleatoire[7])
+                    spin2z = float(ligne_aleatoire[8])
+                    chieff = float(ligne_aleatoire[9])
+                    chip = float(ligne_aleatoire[10])
+                    tcoal = float(ligne_aleatoire[11])
+                    SNRH = float(ligne_aleatoire[12])
+                    SNRL = float(ligne_aleatoire[13])
+                    self.__TGenerator.majParams(m1,m2,s1x=spin1x,s2x=spin2x,s1y=spin1y,s2y=spin2y,s1z=spin1z,s2z=spin2z,D=None,Phic=None)
 
-                m1=npy.random.uniform(15,15)
-                m2=npy.random.uniform(15,15)
-                SNR=npy.random.uniform(30,30)
-                self.__TGenerator.majParams(m1,m2)
+                else :
+                    m1=npy.random.uniform(5,75)
+                    m2=npy.random.uniform(5,75)
+                    self.__TGenerator.majParams(m1,m2)
 
+                SNR=npy.random.uniform(15,15)
                 self.__TGenerator.getNewSample(kindPSD=self.__kindPSD,Tsample=self.__TGenerator.duration(),norm=True)
                 data=self.__TGenerator.signal()
                 data_r=self.__TGenerator.signal_raw()
@@ -133,9 +167,11 @@ class GenDataSet:
                 randt=npy.random.normal((i+1)*interval,interval/20.)
                 inj=[m1,m2,SNR,randt]
                 self.__injections.append(inj)
+                if self.fromtxtfile :
+                    print("Injection",i,"(id,m1,m2,SNR,tc)=(",f'{id}',f'{m1:.1f}',f'{m2:.1f}',f'{SNR:.1f}',f'{randt:.1f}',")")
+                else :
+                    print("Injection",i,"(m1,m2,SNR,tc)=(",f'{m1:.1f}',f'{m2:.1f}',f'{SNR:.1f}',f'{randt:.1f}',")")
 
-                print("Injection",i,"(m1,m2,SNR,tc)=(",f'{m1:.1f}',f'{m2:.1f}',f'{SNR:.1f}',f'{randt:.1f}',")")
-        
                 idxstart=int((randt-self.__TGenerator.duration())*self.__listfe[0])
     
                 for i in range(len(data)):
@@ -180,7 +216,7 @@ class GenDataSet:
               mon_fichier_reader = csv.reader(mon_fichier, delimiter=',')
               lignes = [x for x in mon_fichier_reader]
           
-        if lignes[0][0]!='Ttot' or lignes[1][0]!='fe' or lignes[2][0]!='kindPSD' or lignes[3][0]!='mint' or lignes[4][0]!='tcint' or lignes[5][0]!='NbB' or lignes[6][0]!='kindTemplate' or lignes[7][0]!='kindBank' or lignes[8][0]!='step' or lignes[9][0]!='whitening'or len(lignes)!=11:
+        if lignes[0][0]!='Ttot' or lignes[1][0]!='fe' or lignes[2][0]!='kindPSD' or lignes[3][0]!='mint' or lignes[4][0]!='tcint' or lignes[5][0]!='NbB' or lignes[6][0]!='kindTemplate' or lignes[7][0]!='kindBank' or lignes[8][0]!='step' or lignes[9][0]!='whitening' or len(lignes)!=11:
             raise Exception("Dataset param file error")
         if not len(lignes[0])==len(lignes[1]):
             raise Exception("Ttot and fe vectors don't have the same size")
@@ -216,7 +252,15 @@ class GenDataSet:
         self.__fmax=float(lignes[10][2])        
         kindBank=lignes[7][1]
         self.__kindBank=kindBank
-                    
+
+
+    def _readtxtFile(self,txtfile) :
+        with open(txtfile, 'r') as f:
+            lignes = f.readlines()
+
+        lignes_parametres = [ligne for ligne in lignes if not ligne.startswith('#') and not ligne.startswith('!')]
+        return lignes_parametres
+
     '''
     DATASET 2/
     
@@ -343,7 +387,7 @@ class GenDataSet:
     # Noise 
     def _genNoiseSequence(self):
 
-        # Noise is produced from PSD using inverse FFTs, therefore we try to 
+        # Noise is produced from PSD unsing inverse FFTs, therefore we try to 
         # keep them reasonably long
 
         nsamples=int(self.__length/self.__NGenerator.Ttot)
@@ -364,13 +408,11 @@ class GenDataSet:
         chunck_H=[]
         strain_V=[]
         strain_H=[]
-
         npts_black=2*int(2*0.01*self.__fe)
         
         window=npy.blackman(npts_black)
         winsize=int(npts_black/2)         
 
-        #print(len(window),winsize)
 
         for i in range(nsamples):
 
@@ -397,6 +439,7 @@ class GenDataSet:
             noise_raw[len(noise_raw)-winsize:]*=window[winsize:]
             chunck_H.append(noise)
             strain_H.append(noise_raw)
+
 
         self.__Noise.append(npy.ravel(npy.squeeze(chunck_V))[0:npts]) # Hanford
         self.__Noise.append(npy.ravel(npy.squeeze(chunck_H))[0:npts]) # Livingston
@@ -443,7 +486,7 @@ class GenDataSet:
         self.__listfnames.append(fname)
         
         gpsinit=1400000000
-
+      
         t = TimeSeries(self.__Noise_raw[0],channel="Noise_and_injections",sample_rate=self.__fe,unit="time",t0=self.__length+gpsinit)
         u = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=self.__fe,unit="time",t0=gpsinit)
         v = TimeSeries(self.__Noise_raw[1],channel="Noise_alone",sample_rate=self.__fe,unit="time",t0=gpsinit+self.__length)
@@ -539,6 +582,7 @@ def parse_cmd_line():
     parser.add_argument("--set","-s",help="Name of the bank",default='test')
     parser.add_argument("-length",help="Length of data chunck (in s)",type=float,default=300)
     parser.add_argument("--paramfile","-pf",help="Fichier csv des paramètres de set",default=None)
+    parser.add_argument("--txtfile","-tf",help="Fichier txt des parametre des templates",default=None)
 
     
     args = parser.parse_args()
@@ -558,7 +602,7 @@ def main():
     
     if args.set=='frame':
         set='frame'
-        Generator=gd.GenDataSet(paramFile=args.paramfile,choice=set,length=args.length,ninj=args.n)
+        Generator=gd.GenDataSet(paramFile=args.paramfile,choice=set,length=args.length,ninj=args.n, txtfile=args.txtfile)
         Generator.saveFrame(cheminout)
     else:
         Generator=gd.GenDataSet(paramFile=args.paramfile,choice=args.set,length=args.start,ninj=args.n)
