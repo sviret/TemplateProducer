@@ -1,5 +1,5 @@
-Ttot,50.
-fe,2048
+Ttot,500.
+fe,4096
 kindPSD,realistic,data/aligo_O4high.txt,
 mint,1.,285.5
 tcint,0.998,0.999
@@ -8,4 +8,4 @@ kindTemplate,EOB,
 kindBank,VT_bank_1band.txt,
 step,1.,
 whitening,1,
-flims,10.,1000.
+flims,10.,2048.

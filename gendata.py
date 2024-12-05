@@ -155,7 +155,7 @@ class GenDataSet:
                     m2=npy.random.uniform(5,75)
                     self.__TGenerator.majParams(m1,m2)
 
-                SNR=npy.random.uniform(15,15)
+                SNR=npy.random.uniform(5,50)
                 self.__TGenerator.getNewSample(kindPSD=self.__kindPSD,Tsample=self.__TGenerator.duration(),norm=True)
                 data=self.__TGenerator.signal()
                 data_r=self.__TGenerator.signal_raw()
@@ -181,10 +181,10 @@ class GenDataSet:
                 randt=npy.random.uniform(self.__TGenerator.duration(),self.__length)
                 data=[]
                 
-            self.__Noise[0] += self.__Signal[0] # Hanford
-            self.__Noise[1] += self.__Signal[0] # Livingston
-            self.__Noise_raw[0] += self.__Signal_raw[0] # Hanford
-            #self.__Noise_raw[1] += self.__Signal_raw[0] # Livingston
+            self.__Noise[0] += self.__Signal[0] # 
+            self.__Noise[1] += self.__Signal[0] # 
+            self.__Noise_raw[0] += self.__Signal_raw[0] # 
+            #self.__Noise_raw[1] += self.__Signal_raw[0] # 
             
             npts=float(len(self.__Noise[0]))
             norm=self.__length/npts
@@ -384,14 +384,16 @@ class GenDataSet:
             del temp,freqs            
             c+=1
 
-    # Noise 
+    # Long noise sequence (for frame production)
     def _genNoiseSequence(self):
 
-        # Noise is produced from PSD unsing inverse FFTs, therefore we try to 
+# Noise is produced from PSD using inverse FFTs, therefore we try to 
         # keep them reasonably long
 
-        nsamples=int(self.__length/self.__NGenerator.Ttot)
-        if self.__length/self.__NGenerator.Ttot-nsamples>0:
+        taper=0.2 # tapering time at the beginning and end of each chunk
+
+        nsamples=int(self.__length/(self.__NGenerator.Ttot-taper))
+        if self.__length/(self.__NGenerator.Ttot-taper)-nsamples>0:
             nsamples+=1
 
         npts=int(self.__length*self.__fe)
@@ -400,7 +402,7 @@ class GenDataSet:
         self.__Noise=[]
         self.__Signal=[]
 
-        # Raw info
+        # Raw info (h(t))
         self.__Noise_raw=[]
         self.__Signal_raw=[]
 
@@ -408,39 +410,62 @@ class GenDataSet:
         chunck_H=[]
         strain_V=[]
         strain_H=[]
-        npts_black=2*int(2*0.01*self.__fe)
-        
+
+        # Do some windowing at start/end of each chunck (200ms), in order to 
+        # avoid spectral leakage
+        # Try to interleave starting and ending windows in order to reduce the impact of tapering
+        # but in pratice the noise in this period of length taper is underestimated 
+
+        npts_black=2*int(taper*self.__fe)
         window=npy.blackman(npts_black)
         winsize=int(npts_black/2)         
 
 
+        end_cV=[]
+        end_sV=[]
+        end_cH=[]
+        end_sH=[]
+
         for i in range(nsamples):
-
             
             self.__NGenerator.getNewSample()
             noise=self.__NGenerator.getNoise()
             noise_raw=self.__NGenerator.getNoise_unwhite()
 
-            noise[:winsize]*=window[:winsize]
-            noise_raw[:winsize]*=window[:winsize]
+            if i>0:
+                noise[:winsize]=noise[:winsize]*window[:winsize]+end_cV
+                noise_raw[:winsize]=noise_raw[:winsize]*window[:winsize]+end_sV
+            else:
+                noise[:winsize]=noise[:winsize]*window[:winsize]
+                noise_raw[:winsize]=noise_raw[:winsize]*window[:winsize]
             noise[len(noise)-winsize:]*=window[winsize:]
             noise_raw[len(noise_raw)-winsize:]*=window[winsize:]
 
-            chunck_V.append(noise)
-            strain_V.append(noise_raw)
-            
+            chunck_V.append(noise[:len(noise)-winsize])
+            strain_V.append(noise_raw[:len(noise)-winsize])
+
+            end_cV=noise[len(noise)-winsize:]
+            end_sV=noise_raw[len(noise_raw)-winsize:]
+
             self.__NGenerator.getNewSample()
             noise=self.__NGenerator.getNoise()
             noise_raw=self.__NGenerator.getNoise_unwhite()
 
-            noise[:winsize]*=window[:winsize]
-            noise_raw[:winsize]*=window[:winsize]
+            if i>0:
+                noise[:winsize]=noise[:winsize]*window[:winsize]+end_cH
+                noise_raw[:winsize]=noise_raw[:winsize]*window[:winsize]+end_sH
+            else:
+                noise[:winsize]=noise[:winsize]*window[:winsize]
+                noise_raw[:winsize]=noise_raw[:winsize]*window[:winsize]
             noise[len(noise)-winsize:]*=window[winsize:]
             noise_raw[len(noise_raw)-winsize:]*=window[winsize:]
-            chunck_H.append(noise)
-            strain_H.append(noise_raw)
 
+            chunck_H.append(noise[:len(noise)-winsize])
+            strain_H.append(noise_raw[:len(noise)-winsize])
 
+            end_cH=noise[len(noise)-winsize:]
+            end_sH=noise_raw[len(noise_raw)-winsize:]
+     
         self.__Noise.append(npy.ravel(npy.squeeze(chunck_V))[0:npts]) # Hanford
         self.__Noise.append(npy.ravel(npy.squeeze(chunck_H))[0:npts]) # Livingston
         self.__Noise_raw.append(npy.ravel(npy.squeeze(strain_V))[0:npts]) # Hanford

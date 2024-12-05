@@ -212,6 +212,8 @@ class GenNoise:
     
     Produce the PSD, so in the noise power in frequency domain
     We don't normalize it, so be carefuf if the signal is not whitened
+    We start from single-sided PSD distribution but express them on 
+    double-sided arrays, thus there is a factor 0.5 introduced
     '''
 
     def _genPSD(self):
@@ -235,8 +237,8 @@ class GenNoise:
 
         # Prepare the time-domain whitening filters
 
-        self.__invPSD=npy.sqrt(1./npy.abs(2*self.__PSD))
-        #print(self.__invPSD)
+        self.__invPSD=npy.sqrt(1./npy.abs(2*self.__PSD)) # Stay single sided here
+
         freqs=self.__Fnorm[0:self.__N//2]
         ampl=self.__invPSD[0:self.__N//2]
         for i in range(len(ampl)):
@@ -254,7 +256,6 @@ class GenNoise:
 
             tmp = npy.zeros(len(self.__whitener))
             tmp[:len(self.__whitener_MP)]=self.__whitener_MP
-            #print(len(self.__whitener_MP),len(self.__whitener))
         
             w, h = signal.freqz(self.__whitener)
             w2, h2 = signal.freqz(self.__whitener_MP)
@@ -295,9 +296,7 @@ class GenNoise:
         if kindPSD=='realistic' and len(self.__custom)>0:
             nPSDs=len(self.__custom)
             rk=random.randint(0,nPSDs-1)
-            #print(nPSDs,rk)
             self._brutePSD=self.__custom[rk]
-            #print(self.__N//2+1,len(self._brutePSD))
             factor=float((self.__N//2+1)/len(self._brutePSD))
             self.__realPSD = npy.abs(ndimage.zoom(self._brutePSD,factor))
     
@@ -332,29 +331,17 @@ class GenNoise:
     def _genNfFromPSD(self):
 
         # The power at a given frequency is taken around the corresponding PSD value
-        # We produce over the full frequency range
-        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(npy.random.normal(self.__PSD[0:self.__N//2+1],self.__PSD[0:self.__N//2+1]/self.__nsamp))
-        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])*npy.random.normal(1,0.1,self.__N//2+1)
-        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSD[0:self.__N//2+1])*0.9
-        #self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
+        # We produce over the required frequency range
 
         ifmax=int(min(self.__fmax,self.__fe/2)/self.__delta_f)
         ifmin=int(self.__fmin/self.__delta_f)
-        #self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]
+
+        # Add some 5% smearing to the central PSD amplitude
         self.__PSDloc[ifmin:ifmax]=self.__PSD[ifmin:ifmax]*npy.random.normal(1,0.05,ifmax-ifmin)
         self.__PSDloc[-1:-self.__N//2:-1]=self.__PSDloc[1:self.__N//2]
 
         self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSDloc[0:self.__N//2+1])
-        #self.__Nfr[0:self.__N//2+1]=npy.sqrt(self.__PSDloc[0:self.__N//2+1])*npy.random.normal(1,0.5,self.__N//2+1)
         self.__Nfi[0:self.__N//2+1]=self.__Nfr[0:self.__N//2+1]
-
-        #print(npy.sum(self.__PSD[ifmin:ifmax])-npy.sum(self.__PSDloc[ifmin:ifmax]))
-        #plt.hist((self.__PSDloc[ifmin:ifmax]/self.__PSD[ifmin:ifmax]),bins=100,label='Sn(f)')
-        #plt.hist(npy.random.normal(1,0.1,ifmax-ifmin),bins=100,label='Sn(f)')
-        #plt.hist(self.__PSDloc[ifmin:ifmax],bins=100,label='Sn(f)')
-        #plt.hist(self.__PSD[ifmin:ifmax]*1e46,bins=100,label='Sn(f)')
-        #plt.xlabel('f (Hz)')
-        #plt.show()
 
         # The initial phase is randomized
         # randn provides a nuber following a normal law centered on 0 with sigma=1, so increase a
@@ -390,7 +377,7 @@ class GenNoise:
     def _genNtFromNf(self):
 
         self.__Nt=[]                       # Noise in time domain
-        self.__Ntnow=[] 
+        self.__Ntnow=[]                    # Non whitened noise (h(t))
 
         for j in range(self.__nTtot):      # one array per chunk
             self.__Nt.append([])
@@ -404,7 +391,7 @@ class GenNoise:
         # The power of one bin is equal to PSD*df (size of the bin)
         # For the ASD we take the square root, so sqrt(PSD*df)
 
-
+        # Raw h(t) is always produced
         self.__Ntnow = npy.fft.ifft(self.__Nf[:]*npy.sqrt(self.__delta_f),norm='forward').real
         
         if self.__whiten==0:
@@ -417,9 +404,6 @@ class GenNoise:
       
         
         self.__Ntraw = self.__Nt[0].copy()
-        #mu, sigma = scipy.stats.norm.fit(self.__Ntraw)
-        #print(f"Width: {sigma}")
-        #print(f"Mean: {mu}")
 
         self.__Nf2=npy.fft.fft(self.__Nt[0],norm='ortho') # Control
   
@@ -460,9 +444,6 @@ class GenNoise:
     '''
 
     def getNewSample(self):
-
-        #if self.__kindPSD=='realistic':
-        #    self.changePSD('realistic')
 
         self._genNfFromPSD()               # Noise realisation in frequency domain
         self._genNtFromNf()                # Noise realisation in time domain
